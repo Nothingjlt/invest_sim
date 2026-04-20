@@ -1,7 +1,7 @@
 import statistics
 import pytest
 from src.config import MarketConfig
-from src.market import Market
+from src.market import SyntheticMarket
 
 def test_market_return_convergence():
     """
@@ -16,10 +16,10 @@ def test_market_return_convergence():
         volatility=volatility, 
         weight=1.0
     )
-    market = Market(market_config, seed=42)
+    market = SyntheticMarket([market_config], seed=42)
     
     num_samples = 100000
-    samples = [market.get_annual_return() for _ in range(num_samples)]
+    samples = [market.get_annual_returns()["Test"] for _ in range(num_samples)]
     
     actual_mean = statistics.mean(samples)
     actual_std = statistics.stdev(samples)

@@ -1,7 +1,7 @@
 from typing import List, Dict
 from src.config import SimulationConfig
 from src.investor import Investor
-from src.market import Market
+from src.market import Market, SyntheticMarket
 from src.strategy import Strategy, FixedAllocationStrategy
 
 class Simulator:
@@ -46,14 +46,26 @@ class Simulator:
 
         return investor.total_portfolio_value
 
-    def run_stochastic(self, strategy: Strategy, num_trials: int = 1000) -> List[float]:
+    def run_stochastic(
+        self, 
+        strategy: Strategy, 
+        num_trials: int = 1000, 
+        market_engine: Market = None
+    ) -> List[float]:
         """
         Runs multiple lifecycle simulations with strategy-based rebalancing.
+        If market_engine is not provided, defaults to SyntheticMarket using config.
         """
         terminal_wealths = []
         
         for _ in range(num_trials):
-            market = Market(self.config.markets)
+            # Use provided engine or default to Synthetic
+            market = market_engine if market_engine else SyntheticMarket(self.config.markets)
+            
+            # If bootstrap, start a new path
+            if hasattr(market, 'start_new_path'):
+                market.start_new_path()
+
             investor = Investor(
                 age=self.config.starting_age,
                 current_salary=self.config.initial_salary,
