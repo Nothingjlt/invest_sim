@@ -1,7 +1,8 @@
-from typing import List
+from typing import List, Dict
 from src.config import SimulationConfig
 from src.investor import Investor
 from src.market import Market
+from src.strategy import Strategy, FixedAllocationStrategy
 
 class Simulator:
     """Orchestrates the lifecycle simulation for a single investor."""
@@ -12,62 +13,76 @@ class Simulator:
         """
         Runs a single lifecycle simulation with a fixed annual return.
         Used for mathematical verification (Increment 2).
+        Works with the multi-asset Investor by using the first market's name.
         """
+        # Create a simple 100% allocation to the first market
+        market_name = self.config.markets[0].name
+        strategy = FixedAllocationStrategy({market_name: 1.0})
+        target_alloc = strategy.get_allocation(self.config.starting_age)
+
         investor = Investor(
             age=self.config.starting_age,
-            current_salary=self.config.initial_salary
+            current_salary=self.config.initial_salary,
+            holdings={market_name: 0.0}
         )
 
         # Main Lifecycle Loop
         while investor.age < self.config.end_age:
-            # Step 1: Market Growth (Beginning of year)
-            investor.portfolio_value *= (1 + annual_return)
+            # Step 1: Market Growth
+            investor.apply_returns({market_name: annual_return})
 
             # Step 2: Income/Savings or Withdrawal
             if investor.age < self.config.retirement_age:
                 # Accumulation Phase
-                investor.earn_and_save(self.config.savings_rate)
+                investor.earn_and_save(self.config.savings_rate, target_alloc)
                 investor.grow_salary(self.config.salary_growth_rate)
             else:
                 # Decumulation Phase
-                withdrawal_amount = investor.portfolio_value * self.config.withdrawal_rate
-                investor.withdraw(withdrawal_amount)
+                withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
+                investor.withdraw(withdrawal_amount, target_alloc)
 
             # Step 3: Aging
             investor.age += 1
 
-        return investor.portfolio_value
+        return investor.total_portfolio_value
 
-    def run_stochastic(self, num_trials: int = 1000) -> List[float]:
+    def run_stochastic(self, strategy: Strategy, num_trials: int = 1000) -> List[float]:
         """
-        Runs multiple lifecycle simulations using stochastic market returns.
+        Runs multiple lifecycle simulations with strategy-based rebalancing.
         """
         terminal_wealths = []
-        # For Increment 3, we use the first market in the config as a baseline.
-        market_config = self.config.markets[0]
         
         for _ in range(num_trials):
-            market = Market(market_config)
+            market = Market(self.config.markets)
             investor = Investor(
                 age=self.config.starting_age,
-                current_salary=self.config.initial_salary
+                current_salary=self.config.initial_salary,
+                # Initialize holdings with zeros for all assets
+                holdings={m.name: 0.0 for m in self.config.markets}
             )
 
             while investor.age < self.config.end_age:
-                # Stochastic Market Growth
-                annual_return = market.get_annual_return()
-                investor.portfolio_value *= (1 + annual_return)
+                # 1. Determine target allocation for current age
+                target_alloc = strategy.get_allocation(investor.age)
+                
+                # 2. Market Growth (applied to existing holdings)
+                annual_returns = market.get_annual_returns()
+                investor.apply_returns(annual_returns)
 
-                # Savings or Withdrawal
+                # 3. Income/Savings or Withdrawal
                 if investor.age < self.config.retirement_age:
-                    invest.earn_and_save(self.config.savings_rate)
+                    investor.earn_and_save(self.config.savings_rate, target_alloc)
                     investor.grow_salary(self.config.salary_growth_rate)
                 else:
-                    withdrawal_amount = investor.portfolio_value * self.config.withdrawal_rate
-                    investor.withdraw(withdrawal_amount)
+                    withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
+                    investor.withdraw(withdrawal_amount, target_alloc)
+
+                # 4. Annual Rebalancing
+                # Crucial step: move money between assets to maintain target allocation
+                investor.rebalance(target_alloc)
 
                 investor.age += 1
             
-            terminal_wealths.append(investor.portfolio_value)
+            terminal_wealths.append(investor.total_portfolio_value)
             
         return terminal_wealths
