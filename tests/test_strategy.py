@@ -33,3 +33,46 @@ def test_glide_path_strategy_linear_shift():
     
     # Check bonds
     assert strategy.get_allocation(45)["Bonds"] == pytest.approx(0.40)
+
+def test_glide_path_granular_assets():
+    """Verify that GlidePathStrategy handles multiple equity and bond assets."""
+    equity_assets = {"Domestic": 0.5, "International": 0.5}
+    bond_assets = {"Gov Bonds": 0.7, "Corp Bonds": 0.3}
+    
+    strategy = GlidePathStrategy(
+        start_age=25,
+        retire_age=65,
+        start_equity=1.0, # 100% equity at start
+        end_equity=0.0,   # 0% equity at retirement
+        equity_assets=equity_assets,
+        bond_assets=bond_assets
+    )
+    
+    # Age 25: 100% Equity (50/50 Domestic/Intl)
+    alloc_25 = strategy.get_allocation(25)
+    assert alloc_25["Domestic"] == pytest.approx(0.5)
+    assert alloc_25["International"] == pytest.approx(0.5)
+    assert alloc_25.get("Gov Bonds", 0) == 0
+    
+    # Age 65: 100% Bonds (70/30 Gov/Corp)
+    alloc_65 = strategy.get_allocation(65)
+    assert alloc_65["Gov Bonds"] == pytest.approx(0.7)
+    assert alloc_65["Corp Bonds"] == pytest.approx(0.3)
+    assert alloc_65.get("Domestic", 0) == 0
+    
+    # Age 45: 50% Equity, 50% Bonds
+    # Equity part: 0.5 * 0.5 = 0.25 Domestic, 0.25 International
+    # Bond part: 0.5 * 0.7 = 0.35 Gov, 0.5 * 0.3 = 0.15 Corp
+    alloc_45 = strategy.get_allocation(45)
+    assert alloc_45["Domestic"] == pytest.approx(0.25)
+    assert alloc_45["International"] == pytest.approx(0.25)
+    assert alloc_45["Gov Bonds"] == pytest.approx(0.35)
+    assert alloc_45["Corp Bonds"] == pytest.approx(0.15)
+
+def test_glide_path_invalid_weights():
+    """Confirm ValueError is raised if asset weights do not sum to 1.0."""
+    with pytest.raises(ValueError, match="Equity asset weights must sum to 1.0"):
+        GlidePathStrategy(25, 65, equity_assets={"A": 0.5})
+        
+    with pytest.raises(ValueError, match="Bond asset weights must sum to 1.0"):
+        GlidePathStrategy(25, 65, bond_assets={"B": 1.1})
