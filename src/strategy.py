@@ -67,3 +67,96 @@ class GlidePathStrategy(Strategy):
             allocation[asset] = allocation.get(asset, 0.0) + (bond_pct * weight)
             
         return allocation
+
+class BalancedStrategy(Strategy):
+    """A traditional balanced strategy (60% Domestic Stocks, 40% Bonds)."""
+    def __init__(self, domestic_label: str = "Domestic Stock", bond_label: str = "Bonds"):
+        self.domestic_label = domestic_label
+        self.bond_label = bond_label
+
+    def get_allocation(self, age: int) -> Dict[str, float]:
+        return {
+            self.domestic_label: 0.60,
+            self.bond_label: 0.40
+        }
+
+class PaperOptimalStrategy(Strategy):
+    """
+    The optimal age-based strategy recommended by the paper.
+    - 100% Equity (33% Domestic, 67% Intl) for most of the lifecycle.
+    - Tactical cash (Bills) allocation near retirement.
+    """
+    def __init__(
+        self, 
+        retire_age: int = 65,
+        dom_label: str = "Domestic Stock",
+        intl_label: str = "International Stock",
+        bills_label: str = "Bills"
+    ):
+        self.retire_age = retire_age
+        self.dom_label = dom_label
+        self.intl_label = intl_label
+        self.bills_label = bills_label
+
+    def get_allocation(self, age: int) -> Dict[str, float]:
+        # Before retirement or after age 70: standard 100% equity split
+        if age < self.retire_age or age >= 70:
+            return {self.dom_label: 0.33, self.intl_label: 0.67}
+        
+        # Transition at retirement (Age 65-70)
+        # Age 65: 26% Dom, 47% Intl, 27% Bills
+        # Age 70: 33% Dom, 67% Intl, 0% Bills
+        progress = (age - self.retire_age) / (70 - self.retire_age)
+        
+        bills = 0.27 * (1 - progress)
+        dom = 0.26 + (0.33 - 0.26) * progress
+        intl = 1.0 - bills - dom
+        
+        return {
+            self.dom_label: dom,
+            self.intl_label: intl,
+            self.bills_label: bills
+        }
+
+class PaperTDFStrategy(Strategy):
+    """
+    A representative Target Date Fund (TDF) glide path based on the paper.
+    - Age 25: 54% Domestic, 36% Intl, 10% Bonds, 0% Bills.
+    - Age 65: 10% Domestic, 7% Intl, 73% Bonds, 10% Bills.
+    """
+    def __init__(
+        self,
+        start_age: int = 25,
+        retire_age: int = 65,
+        dom_label: str = "Domestic Stock",
+        intl_label: str = "International Stock",
+        bond_label: str = "Bonds",
+        bills_label: str = "Bills"
+    ):
+        self.start_age = start_age
+        self.retire_age = retire_age
+        self.dom_label = dom_label
+        self.intl_label = intl_label
+        self.bond_label = bond_label
+        self.bills_label = bills_label
+
+    def get_allocation(self, age: int) -> Dict[str, float]:
+        if age <= self.start_age:
+            p = 0.0
+        elif age >= self.retire_age:
+            p = 1.0
+        else:
+            p = (age - self.start_age) / (self.retire_age - self.start_age)
+
+        # Interpolation between start and retirement
+        dom = 0.54 + (0.10 - 0.54) * p
+        intl = 0.36 + (0.07 - 0.36) * p
+        bonds = 0.10 + (0.73 - 0.10) * p
+        bills = 0.00 + (0.10 - 0.00) * p
+
+        return {
+            self.dom_label: dom,
+            self.intl_label: intl,
+            self.bond_label: bonds,
+            self.bills_label: bills
+        }

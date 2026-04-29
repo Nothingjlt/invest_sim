@@ -39,3 +39,17 @@ class SimulationConfig:
             # We will handle rebalancing in later increments, 
             # but for now, weights must sum to 100%.
             raise ValueError("Total market weights must sum to 1.0.")
+
+    @staticmethod
+    def get_paper_market_configs() -> List[MarketConfig]:
+        """
+        Returns the 4 standard asset classes used in the paper:
+        Domestic Stock, International Stock, Bonds, and Bills.
+        Return values are approximate annualized real returns based on paper data.
+        """
+        return [
+            MarketConfig(name="Domestic Stock", expected_return=0.05, volatility=0.17, weight=0.33),
+            MarketConfig(name="International Stock", expected_return=0.07, volatility=0.23, weight=0.67),
+            MarketConfig(name="Bonds", expected_return=0.01, volatility=0.10, weight=0.0),
+            MarketConfig(name="Bills", expected_return=0.00, volatility=0.02, weight=0.0)
+        ]
