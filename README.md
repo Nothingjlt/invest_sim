@@ -6,11 +6,19 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 
 ## Features
 
-- **Stochastic Lifecycle Modeling**: Monte Carlo simulations tracking an investor from age 25 to 100.
-- **Interchangeable Strategies**: Easily switch between `FixedAllocationStrategy` and `GlidePathStrategy`.
+- **Stochastic Lifecycle Modeling**: Monte Carlo simulations tracking an investor from age 25 to a variable terminal age (Longevity Risk).
+- **Interchangeable & Research-Based Strategies**: 
+    - `FixedAllocationStrategy`: Constant asset mix.
+    - `GlidePathStrategy`: Traditional Target Date Fund (TDF) approach.
+    - `PaperOptimalStrategy`: The 100% Equity recommendation with tactical cash buffers from Anarkulova et al. (2023).
+    - `PaperTDFStrategy`: Representative industry glide path for direct research comparison.
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).
     - `BootstrapMarket`: **Block Bootstrap** sampling from real-world historical data to preserve market cycles.
+- **Longevity & Social Security**:
+    - **Mortality Engine**: Simplified Gompertz mortality model for stochastic lifespans.
+    - **Social Security**: Integrated as a consumption floor to model non-portfolio income.
+- **Dynamic Withdrawal Rules**: Supports both "Variable Percentage" and "Fixed Real" (4% Rule) withdrawal strategies.
 - **Success Metrics**:
     - **Probability of Ruin**: Frequency of hitting $0 in retirement.
     - **Tail Risk (5th Percentile)**: Identifying worst-case wealth outcomes.
@@ -33,45 +41,48 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 
 ## Usage Example
 
-The following script compares a 100% Equity strategy against a traditional Glide Path using the provided historical data.
+The following script compares the paper's **100% Equity (Optimal)** strategy against a **Traditional Target Date Fund (TDF)** using synthetic market parameters derived from historical developed market data.
 
 ```python
-from src.config import SimulationConfig, MarketConfig
+from src.config import SimulationConfig
 from src.simulator import Simulator
-from src.strategy import FixedAllocationStrategy, GlidePathStrategy
-from src.market import BootstrapMarket
+from src.strategy import PaperOptimalStrategy, PaperTDFStrategy
 from src.metrics import Metrics
 
-# 1. Setup Configuration
+# 1. Setup Configuration with Research Parameters
+paper_markets = SimulationConfig.get_paper_market_configs()
 config = SimulationConfig(
     starting_age=25,
     retirement_age=65,
-    end_age=100,
     initial_salary=50000,
     savings_rate=0.10,
-    withdrawal_rate=0.04
+    withdrawal_rate=0.04,
+    withdrawal_strategy="fixed_real", # The "4% Rule" behavior
+    enable_mortality=True,            # Stochastic lifespans
+    markets=paper_markets
 )
 
-# 2. Define Strategies
-equity_100 = FixedAllocationStrategy({"Domestic": 0.5, "International": 0.5})
-glide_path = GlidePathStrategy(start_age=25, retire_age=65)
+# 2. Define Research-Based Strategies
+optimal_strategy = PaperOptimalStrategy(retire_age=65)
+tdf_strategy = PaperTDFStrategy(start_age=25, retire_age=65)
 
-# 3. Initialize Historical Market Engine
-market = BootstrapMarket("data/historical_returns.csv", block_size=10)
+# 3. Initialize Simulator
 sim = Simulator(config)
 
-# 4. Run Simulations
-equity_results = sim.run_stochastic(equity_100, num_trials=1000, market_engine=market)
-glide_results = sim.run_stochastic(glide_path, num_trials=1000, market_engine=market)
+# 4. Run Monte Carlo Simulations
+optimal_results = sim.run_stochastic(optimal_strategy, num_trials=1000)
+tdf_results = sim.run_stochastic(tdf_strategy, num_trials=1000)
 
 # 5. Compare Metrics
-print(f"100% Equity - Median Wealth: ${Metrics.percentile(equity_results, 50):,.2f}")
-print(f"100% Equity - 5th Percentile: ${Metrics.percentile(equity_results, 5):,.2f}")
-print(f"100% Equity - Prob. of Ruin: {Metrics.probability_of_ruin(equity_results):.2%}")
+print(f"--- 100% Equity (Optimal) ---")
+print(f"Median Wealth: ${Metrics.percentile(optimal_results, 50):,.2f}")
+print(f"5th Percentile: ${Metrics.percentile(optimal_results, 5):,.2f}")
+print(f"Prob. of Ruin: {Metrics.probability_of_ruin(optimal_results):.2%}")
 
-print(f"\nGlide Path - Median Wealth: ${Metrics.percentile(glide_results, 50):,.2f}")
-print(f"Glide Path - 5th Percentile: ${Metrics.percentile(glide_results, 5):,.2f}")
-print(f"Glide Path - Prob. of Ruin: {Metrics.probability_of_ruin(glide_results):.2%}")
+print(f"\n--- Traditional TDF ---")
+print(f"Median Wealth: ${Metrics.percentile(tdf_results, 50):,.2f}")
+print(f"5th Percentile: ${Metrics.percentile(tdf_results, 5):,.2f}")
+print(f"Prob. of Ruin: {Metrics.probability_of_ruin(tdf_results):.2%}")
 ```
 
 ## Plugging In Real-World Data
@@ -92,7 +103,9 @@ Year,Domestic,International,Bonds
 
 4. Update your simulation script to point to the new file:
 ```python
+from src.market import BootstrapMarket
 market = BootstrapMarket("data/my_data.csv", block_size=10)
+results = sim.run_stochastic(optimal_strategy, market_engine=market)
 ```
 
 ## Project Structure
@@ -104,15 +117,9 @@ market = BootstrapMarket("data/my_data.csv", block_size=10)
 ## Future Development
 
 ### Planned Enhancements
-- **Flexible Rebalancing**: Allow for configurable rebalancing frequencies (e.g., quarterly, every 5 years) or threshold-based rebalancing (e.g., only when an asset drifts by >5%).
-- **Asset Class Granularity**: Expand support for more specific international markets (Emerging vs. Developed), Small-Cap vs. Large-Cap, and alternative assets like Real Estate (REITs).
-- **Visualization Suite**: Integrate `matplotlib` or `plotly` to generate:
-    - Terminal wealth distribution histograms.
-    - "Spaghetti plots" showing individual simulation paths over time.
-    - Probability of ruin heatmaps across different withdrawal rates.
-- **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and fund expense ratios on long-term wealth.
-- **Dynamic Withdrawal Strategies**: Implement smarter decumulation rules, such as the **Guyton-Klinger Guardrails**, instead of a fixed percentage.
-- **Correlated Synthetic Markets**: Improve the `SyntheticMarket` to handle asset correlations (covariance), allowing for more realistic stock/bond interactions.
-- **Social Security & Pensions**: Add the ability to model non-portfolio income streams starting at specific ages.
-- **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., testing every savings rate from 5% to 20%) to find optimal inflection points.
-- **Web Dashboard**: Create a Streamlit or Dash interface to allow non-technical users to interact with the simulation parameters and view results in real-time.
+- **Flexible Rebalancing**: Allow for configurable rebalancing frequencies (e.g., quarterly, every 5 years) or threshold-based rebalancing.
+- **Asset Class Granularity**: Expand support for Emerging vs. Developed markets, Small-Cap vs. Large-Cap, and REITs.
+- **Visualization Suite**: Integrate `matplotlib` or `plotly` to generate terminal wealth histograms and "spaghetti plots" of simulation paths.
+- **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and expense ratios.
+- **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
+- **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.

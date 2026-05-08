@@ -1,3 +1,4 @@
+import random
 from typing import List, Dict
 from src.config import SimulationConfig
 from src.investor import Investor
@@ -8,6 +9,24 @@ class Simulator:
     """Orchestrates the lifecycle simulation for a single investor."""
     def __init__(self, config: SimulationConfig):
         self.config = config
+
+    def _get_trial_end_age(self) -> int:
+        """Determines the end age for a simulation trial."""
+        if not self.config.enable_mortality:
+            return self.config.end_age
+        
+        # Simple mortality model: probability of death increases with age
+        # Starting from age 50, death probability increases
+        for age in range(self.config.starting_age, 120):
+            if age < 50:
+                prob_death = 0.001
+            else:
+                # Roughly doubling every 7-8 years (Gompertz-like)
+                prob_death = 0.001 * (1.1 ** (age - 50))
+            
+            if random.random() < prob_death:
+                return age
+        return 120
 
     def run_deterministic(self, annual_return: float = 0.0) -> float:
         """
@@ -73,7 +92,10 @@ class Simulator:
                 holdings={m.name: 0.0 for m in self.config.markets}
             )
 
-            while investor.age < self.config.end_age:
+            trial_end_age = self._get_trial_end_age()
+            fixed_withdrawal_amount = 0.0
+
+            while investor.age < trial_end_age:
                 # 1. Determine target allocation for current age
                 target_alloc = strategy.get_allocation(investor.age)
                 
@@ -86,11 +108,20 @@ class Simulator:
                     investor.earn_and_save(self.config.savings_rate, target_alloc)
                     investor.grow_salary(self.config.salary_growth_rate)
                 else:
-                    withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
+                    # Capture portfolio value at the start of retirement for fixed-real rule
+                    if investor.age == self.config.retirement_age:
+                        fixed_withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
+
+                    if self.config.withdrawal_strategy == "fixed_real":
+                        withdrawal_amount = fixed_withdrawal_amount
+                    else:
+                        withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
+                    
+                    # Social Security added as consumption (doesn't go into portfolio in this model)
+                    # but portfolio withdrawal is capped by portfolio value
                     investor.withdraw(withdrawal_amount, target_alloc)
 
                 # 4. Annual Rebalancing
-                # Crucial step: move money between assets to maintain target allocation
                 investor.rebalance(target_alloc)
 
                 investor.age += 1

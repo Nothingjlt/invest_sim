@@ -22,6 +22,9 @@ class SimulationConfig:
     salary_growth_rate: float = 0.03  # Real salary growth (above inflation)
     savings_rate: float = 0.10       # Percentage of salary saved (e.g., 10%)
     withdrawal_rate: float = 0.04    # Percentage of retirement portfolio withdrawn annually
+    withdrawal_strategy: str = "variable_pct"  # "variable_pct" or "fixed_real"
+    social_security_benefit: float = 0.0      # Annual real benefit
+    enable_mortality: bool = False             # Use variable lifespans
     
     # Markets (Synthetic placeholders for now)
     # Allows 'choice of markets to invest' by defining asset classes here.
