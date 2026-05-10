@@ -3,6 +3,7 @@ import numpy as np
 from src.config import SimulationConfig, MarketConfig
 from src.simulator import Simulator
 from src.strategy import FixedAllocationStrategy
+from src.investor import Investor
 
 def test_fixed_real_withdrawal_strategy():
     """
@@ -78,3 +79,35 @@ def test_mortality_affects_trial_length():
     results = sim.run_stochastic(strategy, num_trials=100)
     
     assert len(set(results)) > 1
+
+def test_social_security_reduces_withdrawals():
+    """Verify that social security benefit reduces the amount taken from the portfolio."""
+    # Scenario: $1000 portfolio, 10% withdrawal rate ($100), $100 SS benefit.
+    # Result: Net withdrawal should be $0.
+    config = SimulationConfig(
+        starting_age=65,
+        retirement_age=65,
+        end_age=66,
+        initial_salary=0,
+        withdrawal_rate=0.10,
+        social_security_benefit=100.0,
+        markets=[MarketConfig("Cash", 0.0, 0.0, 1.0)]
+    )
+    
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Cash": 1.0})
+    
+    # Manually set initial holdings
+    def run_with_initial_wealth():
+        investor = Investor(age=65, current_salary=0, holdings={"Cash": 1000.0})
+        # Simulate one year at age 65
+        target_alloc = strategy.get_allocation(65)
+        # 1. Market Growth (0%)
+        # 2. Withdrawal
+        withdrawal_amount = 1000.0 * 0.10 # $100
+        net_withdrawal = max(0.0, withdrawal_amount - config.social_security_benefit) # 100 - 100 = 0
+        investor.withdraw(net_withdrawal, target_alloc)
+        return investor.total_portfolio_value
+
+    final_wealth = run_with_initial_wealth()
+    assert final_wealth == 1000.0

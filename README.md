@@ -14,6 +14,7 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
     - `GlidePathStrategy`: Traditional Target Date Fund (TDF) approach with granular asset support.
     - `PaperOptimalStrategy`: The 100% Equity recommendation with tactical cash buffers from Anarkulova et al. (2023), now country-aware.
     - `PaperTDFStrategy`: Representative industry glide path for direct research comparison.
+    - `BalancedStrategy`: Traditional 60/40 stock-bond benchmark.
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).
     - `BootstrapMarket`: **Dynamic Block Bootstrap** sampling that detects country columns automatically from historical CSV data.
@@ -60,13 +61,23 @@ config = SimulationConfig(
     savings_rate=0.10,
     withdrawal_rate=0.04,
     withdrawal_strategy="fixed_real", # The "4% Rule" behavior
+    social_security_benefit=15000,    # Annual real SS income
     enable_mortality=True,            # Stochastic lifespans
     markets=paper_markets
 )
 
-# 2. Define Research-Based Strategies (mapped to USA as Domestic)
-optimal_strategy = PaperOptimalStrategy(retire_age=65, dom_label="USA")
-tdf_strategy = PaperTDFStrategy(start_age=25, retire_age=65, dom_label="USA")
+# 2. Define Research-Based Strategies (matching labels in paper_markets)
+optimal_strategy = PaperOptimalStrategy(
+    retire_age=65, 
+    dom_label="Domestic Stock",
+    intl_assets={"International Stock": 1.0}
+)
+tdf_strategy = PaperTDFStrategy(
+    start_age=25, 
+    retire_age=65, 
+    dom_label="Domestic Stock",
+    intl_assets={"International Stock": 1.0}
+)
 
 # 3. Initialize Simulator
 sim = Simulator(config)
@@ -109,6 +120,8 @@ from src.market import BootstrapMarket
 market = BootstrapMarket("data/global_historical_returns.csv", block_size=10)
 results = sim.run_stochastic(optimal_strategy, market_engine=market)
 ```
+
+*(Note: When using `BootstrapMarket`, ensure your strategy's `dom_label` and `intl_assets` match the column names in your CSV, such as `"USA"`, `"GBR"`, etc.)*
 
 ## Project Structure
 

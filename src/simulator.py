@@ -117,9 +117,9 @@ class Simulator:
                     else:
                         withdrawal_amount = investor.total_portfolio_value * self.config.withdrawal_rate
                     
-                    # Social Security added as consumption (doesn't go into portfolio in this model)
-                    # but portfolio withdrawal is capped by portfolio value
-                    investor.withdraw(withdrawal_amount, target_alloc)
+                    # Social Security reduces the amount needed from the portfolio
+                    net_portfolio_withdrawal = max(0.0, withdrawal_amount - self.config.social_security_benefit)
+                    investor.withdraw(net_portfolio_withdrawal, target_alloc)
 
                 # 4. Annual Rebalancing
                 investor.rebalance(target_alloc)
