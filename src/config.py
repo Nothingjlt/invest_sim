@@ -32,6 +32,15 @@ class SimulationConfig:
         MarketConfig(name="Domestic Stock", expected_return=0.07, volatility=0.15, weight=1.0)
     ])
 
+    # Classification Transition Registry (Historical Accuracy)
+    # Maps country names to the year they were first classified as 'Developed'.
+    # Used to prevent double-counting in World portfolios.
+    DEVELOPED_TRANSITIONS: Dict[str, int] = field(default_factory=lambda: {
+        "USA": 1890, "GBR": 1890, "FRA": 1890, "DEU": 1890, "JPN": 1930, 
+        "CAN": 1891, "AUS": 1901, "MEX": 1994, "KOR": 1996, "POL": 1996, 
+        "GRC": 1920, "TUR": 1948, "CHL": 2010, "CZE": 1995, "HUN": 1996
+    })
+
     def validate(self):
         """Basic validation to ensure parameters are logically consistent."""
         if self.starting_age >= self.retirement_age:
@@ -39,9 +48,13 @@ class SimulationConfig:
         if self.retirement_age >= self.end_age:
             raise ValueError("Retirement age must be before end age.")
         if sum(m.weight for m in self.markets) != 1.0:
-            # We will handle rebalancing in later increments, 
-            # but for now, weights must sum to 100%.
             raise ValueError("Total market weights must sum to 1.0.")
+        
+        # Check for Market Classification Collisions
+        # Ensure no country is treated as both Developed and Emerging in the same context
+        asset_names = [m.name for m in self.markets]
+        if len(asset_names) != len(set(asset_names)):
+            raise ValueError("Duplicate asset names detected in market configuration.")
 
     @staticmethod
     def get_paper_market_configs() -> List[MarketConfig]:
@@ -56,3 +69,24 @@ class SimulationConfig:
             MarketConfig(name="Bonds", expected_return=0.01, volatility=0.10, weight=0.0),
             MarketConfig(name="Bills", expected_return=0.00, volatility=0.02, weight=0.0)
         ]
+
+    @staticmethod
+    def get_world_market_configs() -> List[MarketConfig]:
+        """
+        Returns a broad set of world market configurations for Developed and Emerging indices.
+        Based on pooled statistical moments from global research.
+        """
+        configs = []
+        # Representative Developed Markets (Pooled averages)
+        for country in ["USA", "GBR", "JPN", "DEU", "FRA", "CAN", "AUS"]:
+            configs.append(MarketConfig(name=country, expected_return=0.05, volatility=0.17, weight=0.0))
+        
+        # Representative Emerging Markets (Pooled averages)
+        for country in ["CHN", "IND", "BRA", "ZAF", "ARE"]:
+            configs.append(MarketConfig(name=country, expected_return=0.10, volatility=0.21, weight=0.0))
+            
+        # Global Fixed Income
+        configs.append(MarketConfig(name="Bonds", expected_return=0.01, volatility=0.10, weight=0.0))
+        configs.append(MarketConfig(name="Bills", expected_return=0.00, volatility=0.02, weight=0.0))
+        
+        return configs

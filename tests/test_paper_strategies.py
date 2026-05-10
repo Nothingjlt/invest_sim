@@ -8,7 +8,9 @@ def test_balanced_strategy():
     assert alloc["Bonds"] == pytest.approx(0.40)
 
 def test_paper_optimal_strategy_lifecycle():
-    strategy = PaperOptimalStrategy(retire_age=65)
+    # Pass custom labels to match the test's expectations
+    intl_assets = {"International Stock": 1.0}
+    strategy = PaperOptimalStrategy(retire_age=65, dom_label="Domestic Stock", intl_assets=intl_assets)
     
     # Pre-retirement: 100% equity (33/67)
     alloc_40 = strategy.get_allocation(40)
@@ -34,7 +36,8 @@ def test_paper_optimal_strategy_lifecycle():
     assert alloc_75.get("Bills", 0) == 0
 
 def test_paper_tdf_strategy_lifecycle():
-    strategy = PaperTDFStrategy(start_age=25, retire_age=65)
+    intl_assets = {"International Stock": 1.0}
+    strategy = PaperTDFStrategy(start_age=25, retire_age=65, dom_label="Domestic Stock", intl_assets=intl_assets)
     
     # Start (25): 54/36/10/0
     alloc_25 = strategy.get_allocation(25)

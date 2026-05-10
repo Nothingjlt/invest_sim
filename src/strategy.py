@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, List
 
 class Strategy(ABC):
     """Abstract base class for investment strategies."""
@@ -15,6 +15,42 @@ class FixedAllocationStrategy(Strategy):
 
     def get_allocation(self, age: int) -> Dict[str, float]:
         return self.target_allocation
+
+class WorldEquityStrategy(Strategy):
+    """
+    A sophisticated global equity strategy that allocates across regions and countries.
+    Supports nested weights for hierarchical allocation.
+    """
+    def __init__(self, region_weights: Dict[str, Dict[str, float]]):
+        self.region_weights = region_weights
+        self._validate_weights()
+
+    def _validate_weights(self):
+        total_weight = 0.0
+        seen_countries = set()
+        for region, countries in self.region_weights.items():
+            region_sum = sum(countries.values())
+            if abs(region_sum - 1.0) > 1e-6:
+                # If region sum isn't 1.0, we assume the user provided absolute portfolio weights
+                # instead of relative weights within the region.
+                pass
+            
+            for country in countries:
+                if country in seen_countries:
+                    raise ValueError(f"Country {country} specified in multiple regions.")
+                seen_countries.add(country)
+            
+            total_weight += sum(countries.values())
+        
+        if abs(total_weight - 1.0) > 1e-6:
+            raise ValueError(f"Total portfolio weight must sum to 1.0 (got {total_weight})")
+
+    def get_allocation(self, age: int) -> Dict[str, float]:
+        flat_allocation = {}
+        for region, countries in self.region_weights.items():
+            for country, weight in countries.items():
+                flat_allocation[country] = weight
+        return flat_allocation
 
 class GlidePathStrategy(Strategy):
     """
@@ -89,34 +125,43 @@ class PaperOptimalStrategy(Strategy):
     def __init__(
         self, 
         retire_age: int = 65,
-        dom_label: str = "Domestic Stock",
-        intl_label: str = "International Stock",
+        dom_label: str = "USA",
+        intl_assets: Dict[str, float] = None,
         bills_label: str = "Bills"
     ):
         self.retire_age = retire_age
         self.dom_label = dom_label
-        self.intl_label = intl_label
+        # Default to a broad international developed set if not provided
+        self.intl_assets = intl_assets or {"GBR": 0.3, "JPN": 0.3, "FRA": 0.2, "DEU": 0.2}
         self.bills_label = bills_label
+        
+        # Validation for intl_assets
+        if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
+            raise ValueError("International asset weights must sum to 1.0")
 
     def get_allocation(self, age: int) -> Dict[str, float]:
-        # Before retirement or after age 70: standard 100% equity split
+        # Before retirement or after age 70: standard 100% equity split (33/67)
         if age < self.retire_age or age >= 70:
-            return {self.dom_label: 0.33, self.intl_label: 0.67}
+            dom_weight = 0.33
+            intl_weight = 0.67
+        else:
+            # Transition at retirement (Age 65-70)
+            # Age 65: 26% Dom, 47% Intl, 27% Bills
+            # Age 70: 33% Dom, 67% Intl, 0% Bills
+            progress = (age - self.retire_age) / (70 - self.retire_age)
+            bills_weight = 0.27 * (1 - progress)
+            dom_weight = 0.26 + (0.33 - 0.26) * progress
+            intl_weight = 1.0 - bills_weight - dom_weight
         
-        # Transition at retirement (Age 65-70)
-        # Age 65: 26% Dom, 47% Intl, 27% Bills
-        # Age 70: 33% Dom, 67% Intl, 0% Bills
-        progress = (age - self.retire_age) / (70 - self.retire_age)
-        
-        bills = 0.27 * (1 - progress)
-        dom = 0.26 + (0.33 - 0.26) * progress
-        intl = 1.0 - bills - dom
-        
-        return {
-            self.dom_label: dom,
-            self.intl_label: intl,
-            self.bills_label: bills
-        }
+        # Map weights to actual assets
+        allocation = {self.dom_label: dom_weight}
+        for asset, rel_weight in self.intl_assets.items():
+            allocation[asset] = intl_weight * rel_weight
+            
+        if age >= self.retire_age and age < 70:
+            allocation[self.bills_label] = 1.0 - sum(v for k,v in allocation.items() if k != self.bills_label)
+            
+        return allocation
 
 class PaperTDFStrategy(Strategy):
     """
@@ -128,17 +173,20 @@ class PaperTDFStrategy(Strategy):
         self,
         start_age: int = 25,
         retire_age: int = 65,
-        dom_label: str = "Domestic Stock",
-        intl_label: str = "International Stock",
+        dom_label: str = "USA",
+        intl_assets: Dict[str, float] = None,
         bond_label: str = "Bonds",
         bills_label: str = "Bills"
     ):
         self.start_age = start_age
         self.retire_age = retire_age
         self.dom_label = dom_label
-        self.intl_label = intl_label
+        self.intl_assets = intl_assets or {"GBR": 0.3, "JPN": 0.3, "FRA": 0.2, "DEU": 0.2}
         self.bond_label = bond_label
         self.bills_label = bills_label
+        
+        if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
+            raise ValueError("International asset weights must sum to 1.0")
 
     def get_allocation(self, age: int) -> Dict[str, float]:
         if age <= self.start_age:
@@ -149,14 +197,18 @@ class PaperTDFStrategy(Strategy):
             p = (age - self.start_age) / (self.retire_age - self.start_age)
 
         # Interpolation between start and retirement
-        dom = 0.54 + (0.10 - 0.54) * p
-        intl = 0.36 + (0.07 - 0.36) * p
-        bonds = 0.10 + (0.73 - 0.10) * p
-        bills = 0.00 + (0.10 - 0.00) * p
+        dom_w = 0.54 + (0.10 - 0.54) * p
+        intl_w = 0.36 + (0.07 - 0.36) * p
+        bonds_w = 0.10 + (0.73 - 0.10) * p
+        bills_w = 0.00 + (0.10 - 0.00) * p
 
-        return {
-            self.dom_label: dom,
-            self.intl_label: intl,
-            self.bond_label: bonds,
-            self.bills_label: bills
+        allocation = {
+            self.dom_label: dom_w,
+            self.bond_label: bonds_w,
+            self.bills_label: bills_w
         }
+        
+        for asset, rel_weight in self.intl_assets.items():
+            allocation[asset] = intl_w * rel_weight
+
+        return allocation
