@@ -123,3 +123,7 @@ results = sim.run_stochastic(optimal_strategy, market_engine=market)
 - **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and expense ratios.
 - **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
 - **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.
+
+## Acknowledgements
+
+This project was developed with the assistance of **Gemini CLI**, an AI-powered software engineering agent.
