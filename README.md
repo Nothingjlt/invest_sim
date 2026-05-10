@@ -7,14 +7,16 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 ## Features
 
 - **Stochastic Lifecycle Modeling**: Monte Carlo simulations tracking an investor from age 25 to a variable terminal age (Longevity Risk).
+- **World Market Architecture**: Support for 60+ country indices (Developed and Emerging) to simulate global diversification benefits.
 - **Interchangeable & Research-Based Strategies**: 
     - `FixedAllocationStrategy`: Constant asset mix.
-    - `GlidePathStrategy`: Traditional Target Date Fund (TDF) approach.
-    - `PaperOptimalStrategy`: The 100% Equity recommendation with tactical cash buffers from Anarkulova et al. (2023).
+    - `WorldEquityStrategy`: Hierarchical global allocation across regions and specific countries.
+    - `GlidePathStrategy`: Traditional Target Date Fund (TDF) approach with granular asset support.
+    - `PaperOptimalStrategy`: The 100% Equity recommendation with tactical cash buffers from Anarkulova et al. (2023), now country-aware.
     - `PaperTDFStrategy`: Representative industry glide path for direct research comparison.
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).
-    - `BootstrapMarket`: **Block Bootstrap** sampling from real-world historical data to preserve market cycles.
+    - `BootstrapMarket`: **Dynamic Block Bootstrap** sampling that detects country columns automatically from historical CSV data.
 - **Longevity & Social Security**:
     - **Mortality Engine**: Simplified Gompertz mortality model for stochastic lifespans.
     - **Social Security**: Integrated as a consumption floor to model non-portfolio income.
@@ -62,9 +64,9 @@ config = SimulationConfig(
     markets=paper_markets
 )
 
-# 2. Define Research-Based Strategies
-optimal_strategy = PaperOptimalStrategy(retire_age=65)
-tdf_strategy = PaperTDFStrategy(start_age=25, retire_age=65)
+# 2. Define Research-Based Strategies (mapped to USA as Domestic)
+optimal_strategy = PaperOptimalStrategy(retire_age=65, dom_label="USA")
+tdf_strategy = PaperTDFStrategy(start_age=25, retire_age=65, dom_label="USA")
 
 # 3. Initialize Simulator
 sim = Simulator(config)
@@ -87,32 +89,33 @@ print(f"Prob. of Ruin: {Metrics.probability_of_ruin(tdf_results):.2%}")
 
 ## Plugging In Real-World Data
 
-The `BootstrapMarket` engine reads from a standard CSV format. To use your own data:
+The `BootstrapMarket` engine reads from a standard CSV format and dynamically detects all available country or asset indices. You can provide as many or as few countries as you like.
 
 1. Create a CSV file in the `data/` directory.
-2. Ensure the CSV has a **Year** column and one column for each asset class (e.g., `Domestic`, `International`, `Bonds`).
+2. Ensure the CSV has a **Year** column and one column for each country or asset (e.g., `USA`, `GBR`, `CHN`, `Bonds`, `Bills`).
 3. Returns should be in decimal format (e.g., `0.07` for 7%, `-0.05` for -5%).
 
-**Example Format (`data/my_data.csv`):**
+**Example Format (`data/global_historical_returns.csv`):**
 ```csv
-Year,Domestic,International,Bonds
-1990,0.05,-0.02,0.08
-1991,0.30,0.12,0.15
+Year,USA,GBR,JPN,CHN,BRA,Bonds,Bills
+1990,0.05,-0.02,0.12,0.08,0.15,0.08,0.03
+1991,0.30,0.12,0.05,0.22,0.45,0.15,0.04
 ...
 ```
 
 4. Update your simulation script to point to the new file:
 ```python
 from src.market import BootstrapMarket
-market = BootstrapMarket("data/my_data.csv", block_size=10)
+market = BootstrapMarket("data/global_historical_returns.csv", block_size=10)
 results = sim.run_stochastic(optimal_strategy, market_engine=market)
 ```
 
 ## Project Structure
 
 - `src/`: Core logic (Investor, Simulator, Market, Strategy, Metrics).
-- `data/`: Historical return datasets.
+- `data/`: Global return datasets and historical indices.
 - `tests/`: Full suite of unit and integration tests.
+- `generate_global_data.py`: Utility to generate multi-country synthetic historical paths.
 
 ## Future Development
 
