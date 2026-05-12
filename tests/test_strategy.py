@@ -1,5 +1,11 @@
 import pytest
-from src.strategy import FixedAllocationStrategy, GlidePathStrategy
+from src.strategy import (
+    FixedAllocationStrategy,
+    GlidePathStrategy,
+    PaperOptimalStrategy,
+    PaperTDFStrategy,
+    BalancedStrategy,
+)
 
 
 def test_fixed_allocation_strategy():
@@ -81,3 +87,44 @@ def test_glide_path_invalid_weights():
 
     with pytest.raises(ValueError, match="Bond asset weights must sum to 1.0"):
         GlidePathStrategy(25, 65, bond_assets={"B": 1.1})
+
+
+def test_strategy_allocations_sum_to_one_and_non_negative():
+    strategies = [
+        GlidePathStrategy(
+            start_age=25,
+            retire_age=65,
+            start_equity=0.90,
+            end_equity=0.30,
+            equity_assets={"Domestic": 0.5, "International": 0.5},
+            bond_assets={"Bonds": 1.0},
+        ),
+        PaperOptimalStrategy(
+            retire_age=65,
+            dom_label="Domestic Stock",
+            intl_assets={"International Stock": 1.0},
+            bills_label="Bills",
+        ),
+        PaperTDFStrategy(
+            start_age=25,
+            retire_age=65,
+            dom_label="Domestic Stock",
+            intl_assets={"International Stock": 1.0},
+            bond_label="Bonds",
+            bills_label="Bills",
+        ),
+        BalancedStrategy(),
+    ]
+
+    ages = [25, 30, 40, 50, 65, 67, 70, 80]
+    for strategy in strategies:
+        for age in ages:
+            allocation = strategy.get_allocation(age)
+            assert sum(allocation.values()) == pytest.approx(1.0)
+            assert all(value >= 0.0 for value in allocation.values())
+
+
+def test_strategy_negative_age_raises_error():
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    with pytest.raises(ValueError, match="Age must be positive"):
+        strategy.get_allocation(-1.0)

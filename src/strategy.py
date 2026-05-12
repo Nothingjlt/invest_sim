@@ -1,13 +1,28 @@
 from abc import ABC, abstractmethod
 from typing import Dict
+from functools import wraps
 
 
 class Strategy(ABC):
     """Abstract base class for investment strategies."""
 
-    @abstractmethod
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    @staticmethod
+    def _validate_age(func):
+        @wraps(func)
+        def wrapper(self, age: float, *args, **kwargs):
+            if age <= 0:
+                raise ValueError("Age must be positive.")
+            return func(self, age, *args, **kwargs)
+        return wrapper
+
+    @_validate_age
+    def get_allocation(self, age: float) -> Dict[str, float]:
         """Returns the target portfolio allocation for a given age."""
+        return self._get_allocation(age)
+
+    @abstractmethod
+    def _get_allocation(self, age: float) -> Dict[str, float]:
+        """Subclasses implement this to provide the allocation logic."""
         pass
 
 
@@ -17,7 +32,7 @@ class FixedAllocationStrategy(Strategy):
     def __init__(self, target_allocation: Dict[str, float]):
         self.target_allocation = target_allocation
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         return self.target_allocation
 
 
@@ -55,7 +70,7 @@ class WorldEquityStrategy(Strategy):
                 f"Total portfolio weight must sum to 1.0 (got {total_weight})"
             )
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         flat_allocation = {}
         for region, countries in self.region_weights.items():
             for country, weight in countries.items():
@@ -94,7 +109,7 @@ class GlidePathStrategy(Strategy):
         if abs(sum(self.bond_assets.values()) - 1.0) > 1e-6:
             raise ValueError("Bond asset weights must sum to 1.0")
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         """Calculates the granular asset split for a given age."""
         if age <= self.start_age:
             equity_pct = self.start_equity
@@ -128,7 +143,7 @@ class BalancedStrategy(Strategy):
         self.domestic_label = domestic_label
         self.bond_label = bond_label
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         return {self.domestic_label: 0.60, self.bond_label: 0.40}
 
 
@@ -161,7 +176,7 @@ class PaperOptimalStrategy(Strategy):
         if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
             raise ValueError("International asset weights must sum to 1.0")
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         # Before retirement or after age 70: standard 100% equity split (33/67)
         if age < self.retire_age or age >= 70:
             dom_weight = 0.33
@@ -219,7 +234,7 @@ class PaperTDFStrategy(Strategy):
         if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
             raise ValueError("International asset weights must sum to 1.0")
 
-    def get_allocation(self, age: int) -> Dict[str, float]:
+    def _get_allocation(self, age: float) -> Dict[str, float]:
         if age <= self.start_age:
             p = 0.0
         elif age >= self.retire_age:

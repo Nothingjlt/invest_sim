@@ -1,4 +1,6 @@
 import pytest
+from src.config import MarketConfig, SimulationConfig
+from src.simulator import Simulator
 from src.strategy import PaperOptimalStrategy, PaperTDFStrategy, BalancedStrategy
 
 
@@ -28,10 +30,10 @@ def test_paper_optimal_strategy_lifecycle():
     assert alloc_65["International Stock"] == pytest.approx(0.47)
     assert alloc_65["Bills"] == pytest.approx(0.27)
 
-    # Mid-transition (67): Midway between 65 and 70
+    # Mid-transition (67.5): Midway between 65 and 70
     # Bills: 27 -> 0. Midpoint is 13.5
     alloc_67_5 = strategy.get_allocation(
-        67
+        67.5
     )  # Using float age for testing interpolation
     assert alloc_67_5["Bills"] == pytest.approx(0.135)
 
@@ -72,3 +74,103 @@ def test_paper_tdf_strategy_lifecycle():
     assert alloc_45["International Stock"] == pytest.approx(0.215)
     assert alloc_45["Bonds"] == pytest.approx(0.415)
     assert alloc_45["Bills"] == pytest.approx(0.05)
+
+
+def test_paper_optimal_strategy_stochastic_runs_deterministically():
+    markets = [
+        MarketConfig(
+            name="Domestic Stock",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.33,
+        ),
+        MarketConfig(
+            name="International Stock",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.67,
+        ),
+        MarketConfig(
+            name="Bills",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.0,
+        ),
+    ]
+    config = SimulationConfig(
+        starting_age=25,
+        retirement_age=65,
+        end_age=66,
+        initial_salary=50000.0,
+        salary_growth_rate=0.0,
+        savings_rate=0.10,
+        withdrawal_rate=0.04,
+        withdrawal_strategy="fixed_real",
+        markets=markets,
+    )
+    sim = Simulator(config)
+    strategy = PaperOptimalStrategy(
+        retire_age=65,
+        dom_label="Domestic Stock",
+        intl_assets={"International Stock": 1.0},
+        bills_label="Bills",
+    )
+
+    results = sim.run_stochastic(strategy, num_trials=2)
+    assert len(results) == 2
+    assert results[0] == pytest.approx(results[1])
+    assert all(value >= 0.0 for value in results)
+
+
+def test_paper_tdf_strategy_stochastic_runs_deterministically():
+    markets = [
+        MarketConfig(
+            name="Domestic Stock",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.10,
+        ),
+        MarketConfig(
+            name="International Stock",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.07,
+        ),
+        MarketConfig(
+            name="Bonds",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.73,
+        ),
+        MarketConfig(
+            name="Bills",
+            expected_return=0.0,
+            volatility=0.0,
+            weight=0.10,
+        ),
+    ]
+    config = SimulationConfig(
+        starting_age=25,
+        retirement_age=65,
+        end_age=66,
+        initial_salary=50000.0,
+        salary_growth_rate=0.0,
+        savings_rate=0.10,
+        withdrawal_rate=0.04,
+        withdrawal_strategy="fixed_real",
+        markets=markets,
+    )
+    sim = Simulator(config)
+    strategy = PaperTDFStrategy(
+        start_age=25,
+        retire_age=65,
+        dom_label="Domestic Stock",
+        intl_assets={"International Stock": 1.0},
+        bond_label="Bonds",
+        bills_label="Bills",
+    )
+
+    results = sim.run_stochastic(strategy, num_trials=2)
+    assert len(results) == 2
+    assert results[0] == pytest.approx(results[1])
+    assert all(value >= 0.0 for value in results)

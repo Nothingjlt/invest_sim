@@ -1,5 +1,6 @@
 import pytest
 from src.config import SimulationConfig
+from src.investor import Investor
 from src.simulator import Simulator
 
 
@@ -50,3 +51,17 @@ def test_accumulation_only():
     # 10 years * ($10000 * 0.1) = $10000
     simulator = Simulator(config)
     assert simulator.run_deterministic(annual_return=0.0) == pytest.approx(10000.0)
+
+
+def test_investor_withdraw_and_rebalance_supports_new_retirement_assets():
+    investor = Investor(
+        age=65,
+        current_salary=0.0,
+        holdings={"Domestic Stock": 100.0, "International Stock": 200.0},
+    )
+    target_alloc = {"Domestic Stock": 0.26, "International Stock": 0.47, "Bills": 0.27}
+    investor.withdraw(60.0, target_alloc)
+    investor.rebalance(target_alloc)
+
+    assert investor.total_portfolio_value == pytest.approx(240.0)
+    assert all(value >= 0.0 for value in investor.holdings.values())

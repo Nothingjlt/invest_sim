@@ -1,6 +1,9 @@
 import pytest
 import pandas as pd
+from src.config import MarketConfig, SimulationConfig
 from src.market import BootstrapMarket
+from src.simulator import Simulator
+from src.strategy import FixedAllocationStrategy
 
 
 def test_bootstrap_block_integrity():
@@ -44,3 +47,29 @@ def test_bootstrap_wrapping():
 
     assert r1["USA"] == pytest.approx(df.iloc[last_idx]["USA"])
     assert r2["USA"] == pytest.approx(df.iloc[0]["USA"])
+
+
+class CountingBootstrapMarket(BootstrapMarket):
+    def __init__(self, csv_path, block_size=1, seed=None):
+        super().__init__(csv_path, block_size, seed)
+        self.start_calls = 0
+
+    def start_new_path(self):
+        self.start_calls += 1
+        super().start_new_path()
+
+
+def test_bootstrap_market_starts_new_path_every_trial():
+    csv_path = "data/global_historical_returns.csv"
+    config = SimulationConfig(
+        starting_age=25,
+        retirement_age=65,
+        end_age=26,
+        markets=[MarketConfig("USA", 0.0, 0.0, 1.0)],
+    )
+    sim = Simulator(config)
+    market = CountingBootstrapMarket(csv_path, block_size=1, seed=42)
+    strategy = FixedAllocationStrategy({"USA": 1.0})
+    sim.run_stochastic(strategy, num_trials=5, market_engine=market)
+
+    assert market.start_calls == 5
