@@ -1,7 +1,8 @@
 import pytest
-from src.config import SimulationConfig
+from src.config import SimulationConfig, MarketConfig
 from src.investor import Investor
-from src.simulator import Simulator
+from src.simulator import Simulator, SimulationResult
+from src.strategy import FixedAllocationStrategy
 
 
 def test_zero_growth_scenario():
@@ -65,3 +66,64 @@ def test_investor_withdraw_and_rebalance_supports_new_retirement_assets():
 
     assert investor.total_portfolio_value == pytest.approx(240.0)
     assert all(value >= 0.0 for value in investor.holdings.values())
+
+
+# ── Path tracking ──────────────────────────────────────────────────────────────
+
+def _minimal_config() -> SimulationConfig:
+    """A short, deterministic config for path-tracking tests."""
+    return SimulationConfig(
+        starting_age=25,
+        retirement_age=30,
+        end_age=32,
+        initial_salary=10_000.0,
+        salary_growth_rate=0.0,
+        savings_rate=0.10,
+        withdrawal_rate=0.04,
+        markets=[MarketConfig(name="Stocks", expected_return=0.0, volatility=0.0, weight=1.0)],
+    )
+
+
+def test_path_tracking_disabled_by_default():
+    """Without track_paths the return value is a plain list (backward compat)."""
+    config = _minimal_config()
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    result = sim.run_stochastic(strategy, num_trials=3)
+
+    assert isinstance(result, list), "Default return type must be List[float]"
+    assert len(result) == 3
+    assert all(isinstance(v, float) for v in result)
+
+
+def test_path_tracking_shape_and_values():
+    """track_paths=True returns SimulationResult with correct shape and values."""
+    config = _minimal_config()
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+
+    num_trials = 5
+    result = sim.run_stochastic(strategy, num_trials=num_trials, track_paths=True)
+
+    assert isinstance(result, SimulationResult)
+    assert len(result.terminal_wealths) == num_trials
+    assert len(result.paths) == num_trials
+
+    expected_steps = config.end_age - config.starting_age + 1  # +1 for t=0 snapshot
+    for i, path in enumerate(result.paths):
+        # Each path must have exactly (years simulated + 1) entries.
+        assert len(path) == expected_steps, (
+            f"Trial {i}: expected {expected_steps} path entries, got {len(path)}"
+        )
+        # The last entry in the path must match terminal_wealths.
+        assert path[-1] == pytest.approx(result.terminal_wealths[i])
+        # All values must be non-negative (no debt modelled).
+        assert all(v >= 0.0 for v in path), f"Trial {i} contains negative wealth"
+        # Path must be monotonically non-decreasing during accumulation phase
+        # (0% return, 0% growth, only contributions — wealth can only stay flat or rise).
+        accumulation_end = config.retirement_age - config.starting_age  # step index
+        for j in range(1, accumulation_end + 1):
+            assert path[j] >= path[j - 1] - 1e-9, (
+                f"Trial {i}: wealth decreased during accumulation at step {j}"
+            )
+

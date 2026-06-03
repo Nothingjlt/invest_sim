@@ -35,7 +35,7 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
    source venv/bin/activate  # On Windows: venv\Scripts\activate
    pip install -r requirements.txt
    ```
-   *(Note: Requirements include `pandas`, `numpy`, and `pytest` for testing.)*
+   *(Note: Requirements include `pandas`, `numpy`, `pytest`, and `matplotlib`)*
 
 2. **Run Tests**:
    ```bash
@@ -98,6 +98,52 @@ print(f"5th Percentile: ${Metrics.percentile(tdf_results, 5):,.2f}")
 print(f"Prob. of Ruin: {Metrics.probability_of_ruin(tdf_results):.2%}")
 ```
 
+## Visualization
+
+The project now includes a lightweight `matplotlib`-based plotting module for visualizing simulation outcomes.
+
+- `plot_terminal_wealth_histogram(...)`
+  - X axis: terminal wealth (`$`)
+  - Y axis: trial count
+- `plot_percentile_curve(...)`
+  - X axis: percentile (`0–100`)
+  - Y axis: terminal wealth (`$`)
+- `plot_ruin_probability(...)`
+  - X axis: strategy label
+  - Y axis: ruin probability (`0–100%`)
+- `plot_summary_metrics(...)`
+  - X axis: metric name (`mean`, `median`, `5th percentile`, `95th percentile`)
+  - Y axis: terminal wealth (`$`)
+
+Example:
+
+```python
+from src.visualization import (
+    plot_terminal_wealth_histogram,
+    plot_percentile_curve,
+    plot_ruin_probability,
+    plot_summary_metrics,
+)
+
+# after running sim.run_stochastic(...) for one or more strategies
+plot_terminal_wealth_histogram(optimal_results, strategy_name="Optimal Strategy", save_path="optimal_terminal_wealth.png")
+plot_percentile_curve(tdf_results, strategy_name="TDF Strategy", save_path="tdf_percentile_curve.png")
+plot_ruin_probability(
+    {
+        "Optimal Strategy": optimal_results,
+        "TDF Strategy": tdf_results,
+    },
+    save_path="comparison_ruin_probability.png",
+)
+plot_summary_metrics(
+    {
+        "Optimal Strategy": optimal_results,
+        "TDF Strategy": tdf_results,
+    },
+    save_path="comparison_summary_metrics.png",
+)
+```
+
 ## Plugging In Real-World Data
 
 The `BootstrapMarket` engine reads from a standard CSV format and dynamically detects all available country or asset indices. You can provide as many or as few countries as you like.
@@ -135,7 +181,7 @@ results = sim.run_stochastic(optimal_strategy, market_engine=market)
 ### Planned Enhancements
 - **Flexible Rebalancing**: Allow for configurable rebalancing frequencies (e.g., quarterly, every 5 years) or threshold-based rebalancing.
 - **Asset Class Granularity**: Expand support for Emerging vs. Developed markets, Small-Cap vs. Large-Cap, and REITs.
-- **Visualization Suite**: Integrate `matplotlib` or `plotly` to generate terminal wealth histograms and "spaghetti plots" of simulation paths.
+- **Visualization Enhancements**: The basic visualization suite and path plot support are implemented, but nicer, more premium plots (e.g., customized CSS/Matplotlib styles, advanced visual configurations, or interactive Dash/Streamlit figures) are still required.
 - **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and expense ratios.
 - **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
 - **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.

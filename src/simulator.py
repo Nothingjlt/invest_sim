@@ -1,9 +1,24 @@
 import random
-from typing import List
+from typing import List, NamedTuple, Optional, Union
 from src.config import SimulationConfig
 from src.investor import Investor
 from src.market import Market, SyntheticMarket, BootstrapMarket
 from src.strategy import Strategy, FixedAllocationStrategy
+
+
+class SimulationResult(NamedTuple):
+    """Returned by run_stochastic() when track_paths=True.
+
+    Attributes:
+        terminal_wealths: Final portfolio value for each trial.
+        paths: Year-by-year total portfolio value per trial.
+            Each inner list starts at the investor's starting age (before any
+            market growth) and appends one value per simulated year, so
+            len(paths[i]) == trial_end_age - starting_age + 1.
+    """
+
+    terminal_wealths: List[float]
+    paths: List[List[float]]
 
 
 class Simulator:
@@ -74,12 +89,20 @@ class Simulator:
         strategy: Strategy,
         num_trials: int = 1000,
         market_engine: Market | None = None,
-    ) -> List[float]:
+        track_paths: bool = False,
+    ) -> Union[List[float], SimulationResult]:
         """
         Runs multiple lifecycle simulations with strategy-based rebalancing.
         If market_engine is not provided, defaults to SyntheticMarket using config.
+
+        When track_paths=True, returns a SimulationResult(terminal_wealths, paths)
+        named-tuple. Each entry in ``paths`` is the year-by-year total portfolio
+        value for one trial (starting snapshot + one value per simulated year).
+        When track_paths=False (default), returns a plain List[float] of terminal
+        wealth values for backward compatibility.
         """
-        terminal_wealths = []
+        terminal_wealths: List[float] = []
+        paths: List[List[float]] = []
 
         for _ in range(num_trials):
             # Use provided engine or default to Synthetic
@@ -99,6 +122,10 @@ class Simulator:
             )
 
             trial_end_age = self._get_trial_end_age()
+            trial_path: List[float] = []
+            if track_paths:
+                # Snapshot before any growth: all zeros at t=starting_age
+                trial_path.append(investor.total_portfolio_value)
             fixed_withdrawal_amount = 0.0
 
             while investor.age < trial_end_age:
@@ -138,6 +165,13 @@ class Simulator:
 
                 investor.age += 1
 
-            terminal_wealths.append(investor.total_portfolio_value)
+                if track_paths:
+                    trial_path.append(investor.total_portfolio_value)
 
+            terminal_wealths.append(investor.total_portfolio_value)
+            if track_paths:
+                paths.append(trial_path)
+
+        if track_paths:
+            return SimulationResult(terminal_wealths=terminal_wealths, paths=paths)
         return terminal_wealths
