@@ -45,7 +45,8 @@ class Investor:
         """Applies annual returns to each asset class."""
         for asset, ret in returns.items():
             if asset in self.holdings:
-                self.holdings[asset] *= 1 + ret
+                if ret == ret and ret is not None:
+                    self.holdings[asset] *= 1 + ret
 
     def rebalance(self, target_allocation: Dict[str, float]):
         """Redistributes total wealth according to target weights."""

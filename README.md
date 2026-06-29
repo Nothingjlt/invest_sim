@@ -18,6 +18,8 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).
     - `BootstrapMarket`: **Dynamic Block Bootstrap** sampling that detects country columns automatically from historical CSV data.
+    - `StationaryBootstrapMarket`: Geometrically distributed block sizes following Politis & Romano (1994), matching the paper's bootstrap design.
+    - `PerspectiveBootstrapMarket`: Country-aware bootstrap engine that processes raw historical panel data (like JST) into perspective-adjusted real returns (FX-converted, deflated by local inflation, and GDP-weighted for international markets).
 - **Longevity & Social Security**:
     - **Mortality Engine**: Simplified Gompertz mortality model for stochastic lifespans.
     - **Social Security**: Integrated as a consumption floor to model non-portfolio income.
@@ -169,6 +171,38 @@ results = sim.run_stochastic(optimal_strategy, market_engine=market)
 
 *(Note: When using `BootstrapMarket`, ensure your strategy's `dom_label` and `intl_assets` match the column names in your CSV, such as `"USA"`, `"GBR"`, etc.)*
 
+## Real-World JST Macrohistory Database Integration
+
+You can now run simulations backed by actual historical macroeconomic and market data spanning from **1870 to 2023** across 18 developed nations via the **Jordà-Schularick-Taylor (JST) Macrohistory Database**.
+
+### Downloading the JST Data
+Run the automated fetcher script to retrieve the JST dataset:
+```bash
+python fetch_jst_data.py
+```
+This script downloads the latest release (R6) from macrohistory.net and saves it to `data/raw/jst_dataset.csv`. (If the automated download fails due to network constraints, follow the instructions in the script's output to download and save the XLSX manually, then re-run the script).
+
+### Using the Paper-Faithful Market Engine
+Use `PerspectiveBootstrapMarket` to dynamically convert the raw long panel data into domestic-investor perspective returns:
+```python
+from src.market import PerspectiveBootstrapMarket
+
+# Configure USA-perspective, stationary geometric block bootstrap (10-year mean block)
+market_engine = PerspectiveBootstrapMarket(
+    csv_path="data/raw/jst_dataset.csv",
+    perspective_country="USA",
+    block_size=10,
+    stationary_bootstrap=True,
+    weight_method="gdp"
+)
+```
+This dynamically calculates:
+- **Domestic Stock**: Real equity returns in domestic currency.
+- **International Stock**: GDP-in-USD weighted average of non-domestic equity returns, FX-converted to the domestic currency, and deflated by domestic inflation.
+- **Bonds**: Real 10-year government bond returns.
+- **Bills**: Real short-term treasury bill returns.
+
+
 ## Project Structure
 
 - `src/`: Core logic (Investor, Simulator, Market, Strategy, Metrics).
@@ -182,6 +216,7 @@ results = sim.run_stochastic(optimal_strategy, market_engine=market)
 - **Flexible Rebalancing**: Allow for configurable rebalancing frequencies (e.g., quarterly, every 5 years) or threshold-based rebalancing.
 - **Asset Class Granularity**: Expand support for Emerging vs. Developed markets, Small-Cap vs. Large-Cap, and REITs.
 - **Visualization Enhancements**: The basic visualization suite and path plot support are implemented, but nicer, more premium plots (e.g., customized CSS/Matplotlib styles, advanced visual configurations, or interactive Dash/Streamlit figures) are still required.
+- **Additional Visualization Enhancements**: Add plots for withdrawl amounts over time.
 - **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and expense ratios.
 - **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
 - **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.
