@@ -109,6 +109,16 @@ class SimulationConfig:
         ]
 
     @staticmethod
+    def get_paper_bootstrap_config(perspective: str = "USA") -> 'SimulationConfig':
+        """
+        Returns a SimulationConfig pre-configured with the paper's standard asset classes.
+        """
+        return SimulationConfig(
+            markets=SimulationConfig.get_paper_market_configs()
+        )
+
+
+    @staticmethod
     def get_world_market_configs() -> List[MarketConfig]:
         """
         Returns a broad set of world market configurations for Developed and Emerging indices.
