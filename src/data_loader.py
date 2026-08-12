@@ -278,7 +278,8 @@ class JSTDataLoader:
                 "Domestic Stock": dom_stock,
                 "International Stock": intl_stock,
                 "Bonds": dom_bond,
-                "Bills": dom_bill
+                "Bills": dom_bill,
+                "Inflation": cpi_ratio_p - 1,  # Annual inflation rate as a decimal
             })
 
         result_df = pd.DataFrame(processed_rows)

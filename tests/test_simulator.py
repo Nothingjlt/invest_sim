@@ -1,8 +1,40 @@
 import pytest
+from typing import Dict
 from src.config import SimulationConfig, MarketConfig
 from src.investor import Investor
+from src.market import Market
 from src.simulator import Simulator, SimulationResult
 from src.strategy import FixedAllocationStrategy
+
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+class ConstantMarket(Market):
+    """Test double: returns fixed asset returns and an optional inflation rate."""
+
+    def __init__(self, returns: Dict[str, float], inflation: float | None = 0.0):
+        self._returns = dict(returns)
+        if inflation is not None:
+            self._returns["Inflation"] = inflation
+
+    def get_annual_returns(self) -> Dict[str, float]:
+        return dict(self._returns)
+
+
+def _short_config(**kwargs) -> SimulationConfig:
+    """A minimal 1-year-retirement config for tightly controlled tests."""
+    defaults = dict(
+        starting_age=25,
+        retirement_age=30,
+        end_age=32,
+        initial_salary=10_000.0,
+        salary_growth_rate=0.0,
+        savings_rate=0.10,
+        withdrawal_rate=0.04,
+        markets=[MarketConfig(name="Stocks", expected_return=0.0, volatility=0.0, weight=1.0)],
+    )
+    defaults.update(kwargs)
+    return SimulationConfig(**defaults)
 
 
 def test_zero_growth_scenario():
@@ -108,6 +140,7 @@ def test_path_tracking_shape_and_values():
     assert isinstance(result, SimulationResult)
     assert len(result.terminal_wealths) == num_trials
     assert len(result.paths) == num_trials
+    assert len(result.withdrawal_paths) == num_trials
 
     expected_steps = config.end_age - config.starting_age + 1  # +1 for t=0 snapshot
     for i, path in enumerate(result.paths):
@@ -126,4 +159,249 @@ def test_path_tracking_shape_and_values():
             assert path[j] >= path[j - 1] - 1e-9, (
                 f"Trial {i}: wealth decreased during accumulation at step {j}"
             )
+
+    for i, w_path in enumerate(result.withdrawal_paths):
+        assert len(w_path) == expected_steps, (
+            f"Trial {i}: expected {expected_steps} withdrawal path entries, got {len(w_path)}"
+        )
+        # All values must be non-negative
+        assert all(v >= 0.0 for v in w_path), f"Trial {i} contains negative withdrawal"
+        
+        # Accumulation phase: ages 25 to 29 (indices 0 to 5) should have 0.0 withdrawal.
+        accumulation_end = config.retirement_age - config.starting_age  # index 5 (age 30)
+        assert all(w == 0.0 for w in w_path[:accumulation_end + 1]), (
+            f"Trial {i} has non-zero withdrawal during accumulation: {w_path[:accumulation_end + 1]}"
+        )
+
+        # Decumulation phase: ages 30 and 31 (indices 6 and 7) should have positive withdrawals.
+        assert all(w > 0.0 for w in w_path[accumulation_end + 1:]), (
+            f"Trial {i} has non-positive withdrawal during decumulation: {w_path[accumulation_end + 1:]}"
+        )
+
+
+# ── Withdrawal modifier tests ──────────────────────────────────────────────────
+
+def test_fixed_real_inflation_adjusts_withdrawal():
+    """fixed_real withdrawal grows each year by realized inflation when flag is set."""
+    inflation_rate = 0.05  # 5%
+    config = _short_config(
+        withdrawal_strategy="fixed_real",
+        withdrawal_inflation_adjusted=True,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=inflation_rate)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    # w[0..5] are accumulation zeros; w[6] is retirement-year-1, w[7] is year-2
+    ret_start = config.retirement_age - config.starting_age  # index 5 (snapshot at age 30)
+    w1 = w[ret_start + 1]  # first retirement withdrawal (age 30)
+    w2 = w[ret_start + 2]  # second retirement withdrawal (age 31)
+
+    assert w1 > 0.0, "First retirement withdrawal should be positive"
+    assert w2 == pytest.approx(w1 * (1 + inflation_rate), rel=1e-6), (
+        f"Expected withdrawal to grow by {inflation_rate:.0%}: {w1} -> {w2}"
+    )
+
+
+def test_fixed_real_no_inflation_when_flag_off():
+    """When withdrawal_inflation_adjusted=False (default), withdrawal stays constant."""
+    config = _short_config(
+        withdrawal_strategy="fixed_real",
+        withdrawal_inflation_adjusted=False,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=0.10)  # high inflation, ignored
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    w1 = w[ret_start + 1]
+    w2 = w[ret_start + 2]
+
+    assert w1 > 0.0
+    assert w2 == pytest.approx(w1, rel=1e-9), "Withdrawal should be flat when flag is off"
+
+
+def test_withdrawal_cap_clamps_variable_pct():
+    """Withdrawal cap limits the amount drawn even with a large portfolio."""
+    # Portfolio at retirement: 5 working years × $1000/yr = $5000
+    # variable_pct 4% of $5000 = $200 gross. Cap at $100.
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.04,
+        withdrawal_cap=100.0,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=0.0)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    for withdrawal in w[ret_start + 1:]:
+        assert withdrawal <= 100.0 + 1e-9, f"Withdrawal {withdrawal} exceeded cap of 100"
+
+
+def test_withdrawal_cap_inflation_adjusts():
+    """When withdrawal_cap_inflation_adjusted=True, the cap grows each year."""
+    inflation_rate = 0.05
+    initial_cap = 50.0
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.99,       # Very aggressive — always hits the cap
+        withdrawal_cap=initial_cap,
+        withdrawal_cap_inflation_adjusted=True,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=inflation_rate)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    w1 = w[ret_start + 1]
+    w2 = w[ret_start + 2]
+
+    # Year-2 cap = initial_cap * (1 + inflation_rate); withdrawal should be close to year-2 cap
+    expected_cap_yr2 = initial_cap * (1 + inflation_rate)
+    # w1 is bounded by initial cap; w2 by the grown cap
+    assert w2 >= w1 - 1e-9, "Cap-adjusted withdrawal should be at least as large in year 2"
+    assert w2 <= expected_cap_yr2 + 1e-9
+
+
+def test_withdrawal_floor_draws_from_portfolio():
+    """If social security doesn't cover the floor, portfolio makes up the difference."""
+    # No SS, floor = 200. variable_pct 4% of a $5000 portfolio = $200 already meets the floor.
+    # Use floor = 300 to force a top-up beyond the natural 4% withdrawal.
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.04,
+        social_security_benefit=0.0,
+        withdrawal_floor=300.0,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=0.0)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    for withdrawal in w[ret_start + 1:]:
+        assert withdrawal >= 300.0 - 1e-9, (
+            f"Withdrawal {withdrawal} fell below floor of 300"
+        )
+
+
+def test_withdrawal_floor_no_draw_if_ss_covers():
+    """If social security fully covers the floor, no extra portfolio draw is needed."""
+    # SS = 500, floor = 300. Natural 4% withdrawal is small but SS > floor, so
+    # net_from_portfolio = max(0, natural - SS) and floor_from_portfolio = max(0, 300 - 500) = 0
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.04,
+        social_security_benefit=500.0,
+        withdrawal_floor=300.0,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=0.0)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    # SS covers everything — the portfolio withdrawal should be 0
+    for withdrawal in w[ret_start + 1:]:
+        assert withdrawal == pytest.approx(0.0, abs=1e-9), (
+            f"Expected no portfolio draw when SS covers floor; got {withdrawal}"
+        )
+
+
+def test_withdrawal_floor_inflation_adjusts():
+    """When withdrawal_floor_inflation_adjusted=True, the floor grows each year."""
+    inflation_rate = 0.05
+    initial_floor = 50.0
+    # Very small withdrawal_rate ensures variable_pct < floor always
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.001,
+        social_security_benefit=0.0,
+        withdrawal_floor=initial_floor,
+        withdrawal_floor_inflation_adjusted=True,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=inflation_rate)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    w1 = w[ret_start + 1]
+    w2 = w[ret_start + 2]
+
+    expected_floor_yr2 = initial_floor * (1 + inflation_rate)
+    assert w1 == pytest.approx(initial_floor, rel=1e-6), (
+        f"Year-1 withdrawal should equal initial floor; got {w1}"
+    )
+    assert w2 == pytest.approx(expected_floor_yr2, rel=1e-6), (
+        f"Year-2 withdrawal should equal inflated floor {expected_floor_yr2}; got {w2}"
+    )
+
+
+def test_cap_and_floor_combined():
+    """With both cap and floor active, withdrawal is bounded in both directions."""
+    # floor=100, cap=200. Natural 4% of ~$500 portfolio = $20, which is below floor.
+    # After floor is applied, withdrawal = 100. Well below cap of 200.
+    config = _short_config(
+        withdrawal_strategy="variable_pct",
+        withdrawal_rate=0.04,
+        social_security_benefit=0.0,
+        withdrawal_cap=200.0,
+        withdrawal_floor=100.0,
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    market = ConstantMarket({"Stocks": 0.0}, inflation=0.0)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    for withdrawal in w[ret_start + 1:]:
+        assert withdrawal >= 100.0 - 1e-9, f"Withdrawal {withdrawal} below floor"
+        assert withdrawal <= 200.0 + 1e-9, f"Withdrawal {withdrawal} above cap"
+
+
+def test_no_inflation_key_defaults_to_zero():
+    """Market with no 'Inflation' key runs without error; trackers stay flat."""
+    config = _short_config(
+        withdrawal_strategy="fixed_real",
+        withdrawal_inflation_adjusted=True,  # Flag is on, but market won't provide inflation
+    )
+    sim = Simulator(config)
+    strategy = FixedAllocationStrategy({"Stocks": 1.0})
+    # inflation=None means no 'Inflation' key emitted
+    market = ConstantMarket({"Stocks": 0.0}, inflation=None)
+
+    result = sim.run_stochastic(strategy, num_trials=1, market_engine=market, track_paths=True)
+
+    w = result.withdrawal_paths[0]
+    ret_start = config.retirement_age - config.starting_age
+    w1 = w[ret_start + 1]
+    w2 = w[ret_start + 2]
+
+    # With 0% effective inflation, fixed_real withdrawal must stay constant
+    assert w1 > 0.0
+    assert w2 == pytest.approx(w1, rel=1e-9), (
+        "With no inflation key, withdrawal should stay flat (zero inflation default)"
+    )
 

@@ -116,6 +116,15 @@ The project now includes a lightweight `matplotlib`-based plotting module for vi
 - `plot_summary_metrics(...)`
   - X axis: metric name (`mean`, `median`, `5th percentile`, `95th percentile`)
   - Y axis: terminal wealth (`$`)
+- `plot_simulation_paths(...)`
+  - X axis: age
+  - Y axis: portfolio value (`$`)
+- `plot_withdrawal_paths(...)`
+  - X axis: age
+  - Y axis: actual withdrawal amount from portfolio (`$`)
+- `plot_withdrawal_comparison(...)`
+  - X axis: age
+  - Y axis: withdrawal amount (`$`) at a specific percentile across multiple strategies
 
 Example:
 
@@ -125,24 +134,45 @@ from src.visualization import (
     plot_percentile_curve,
     plot_ruin_probability,
     plot_summary_metrics,
+    plot_simulation_paths,
+    plot_withdrawal_paths,
+    plot_withdrawal_comparison,
 )
 
-# after running sim.run_stochastic(...) for one or more strategies
-plot_terminal_wealth_histogram(optimal_results, strategy_name="Optimal Strategy", save_path="optimal_terminal_wealth.png")
-plot_percentile_curve(tdf_results, strategy_name="TDF Strategy", save_path="tdf_percentile_curve.png")
+# after running sim.run_stochastic(..., track_paths=True) for one or more strategies
+plot_terminal_wealth_histogram(optimal_results.terminal_wealths, strategy_name="Optimal Strategy", save_path="optimal_terminal_wealth.png")
+plot_percentile_curve(tdf_results.terminal_wealths, strategy_name="TDF Strategy", save_path="tdf_percentile_curve.png")
 plot_ruin_probability(
     {
-        "Optimal Strategy": optimal_results,
-        "TDF Strategy": tdf_results,
+        "Optimal Strategy": optimal_results.terminal_wealths,
+        "TDF Strategy": tdf_results.terminal_wealths,
     },
     save_path="comparison_ruin_probability.png",
 )
 plot_summary_metrics(
     {
-        "Optimal Strategy": optimal_results,
-        "TDF Strategy": tdf_results,
+        "Optimal Strategy": optimal_results.terminal_wealths,
+        "TDF Strategy": tdf_results.terminal_wealths,
     },
     save_path="comparison_summary_metrics.png",
+)
+plot_simulation_paths(
+    optimal_results.paths,
+    strategy_name="Optimal Strategy",
+    save_path="optimal_simulation_paths.png",
+)
+plot_withdrawal_paths(
+    optimal_results.withdrawal_paths,
+    strategy_name="Optimal Strategy",
+    save_path="optimal_withdrawal_paths.png",
+)
+plot_withdrawal_comparison(
+    {
+        "Optimal Strategy": optimal_results.withdrawal_paths,
+        "TDF Strategy": tdf_results.withdrawal_paths,
+    },
+    percentile=10.0,
+    save_path="comparison_withdrawal_percentiles.png",
 )
 ```
 
@@ -216,10 +246,11 @@ This dynamically calculates:
 - **Flexible Rebalancing**: Allow for configurable rebalancing frequencies (e.g., quarterly, every 5 years) or threshold-based rebalancing.
 - **Asset Class Granularity**: Expand support for Emerging vs. Developed markets, Small-Cap vs. Large-Cap, and REITs.
 - **Visualization Enhancements**: The basic visualization suite and path plot support are implemented, but nicer, more premium plots (e.g., customized CSS/Matplotlib styles, advanced visual configurations, or interactive Dash/Streamlit figures) are still required.
-- **Additional Visualization Enhancements**: Add plots for withdrawl amounts over time.
 - **Taxes & Fees**: Model the impact of capital gains taxes, dividend leakage, and expense ratios.
 - **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
 - **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.
+- **Withdrawl amount updates** *(done)*: Withdrawal can now be inflation-adjusted (using realized CPI from market data), capped at a configurable maximum, or bound from below by a minimum real expenditure floor. Both cap and floor can themselves be inflation-adjusted. See `SimulationConfig` fields: `withdrawal_inflation_adjusted`, `withdrawal_cap`, `withdrawal_cap_inflation_adjusted`, `withdrawal_floor`, `withdrawal_floor_inflation_adjusted`.
+- **Variable withdrawal timing granularity**: The paper specifies that variable-pct withdrawals are evaluated at the *beginning of each month*. The current simulator runs in annual steps, which approximates this. A future increment should introduce monthly sub-steps in the decumulation loop to exactly replicate the paper's timing semantics.
 
 ## Acknowledgements
 

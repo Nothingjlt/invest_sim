@@ -1,5 +1,5 @@
 from dataclasses import dataclass, field
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 @dataclass
@@ -31,6 +31,25 @@ class SimulationConfig:
     withdrawal_strategy: str = "variable_pct"  # "variable_pct" or "fixed_real"
     social_security_benefit: float = 0.0  # Annual real benefit
     enable_mortality: bool = False  # Use variable lifespans
+
+    # Withdrawal modifiers
+    withdrawal_inflation_adjusted: bool = False
+    # If True, grow the fixed_real withdrawal (and optional cap/floor) by realized
+    # inflation sourced from the market engine each year.
+
+    withdrawal_cap: Optional[float] = None
+    # Maximum gross withdrawal per year (same real units as initial_salary).
+    # Applied before the social-security offset.
+
+    withdrawal_cap_inflation_adjusted: bool = False
+    # If True, grow withdrawal_cap by realized inflation each year.
+
+    withdrawal_floor: Optional[float] = None
+    # Minimum real expenditure per year. The portfolio makes up any shortfall
+    # not covered by social_security_benefit.
+
+    withdrawal_floor_inflation_adjusted: bool = False
+    # If True, grow withdrawal_floor by realized inflation each year.
 
     # Markets (Synthetic placeholders for now)
     # Allows 'choice of markets to invest' by defining asset classes here.
@@ -79,6 +98,16 @@ class SimulationConfig:
         asset_names = [m.name for m in self.markets]
         if len(asset_names) != len(set(asset_names)):
             raise ValueError("Duplicate asset names detected in market configuration.")
+
+        # Withdrawal cap/floor consistency
+        if (
+            self.withdrawal_cap is not None
+            and self.withdrawal_floor is not None
+            and self.withdrawal_cap < self.withdrawal_floor
+        ):
+            raise ValueError(
+                "withdrawal_cap must be >= withdrawal_floor when both are set."
+            )
 
     @staticmethod
     def get_paper_market_configs() -> List[MarketConfig]:

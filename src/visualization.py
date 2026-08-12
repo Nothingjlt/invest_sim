@@ -222,3 +222,86 @@ def plot_simulation_paths(
 
     return fig, ax
 
+
+def plot_withdrawal_paths(
+    withdrawal_paths: List[List[float]],
+    strategy_name: Optional[str] = None,
+    num_paths: int = 25,
+    starting_age: int = 25,
+    ax: Optional[plt.Axes] = None,
+    figsize: Tuple[int, int] = (12, 6),
+    save_path: Optional[str] = None,
+) -> Tuple[plt.Figure, plt.Axes]:
+    """Plot a selection of withdrawal paths over time."""
+    if not withdrawal_paths:
+        raise ValueError("No withdrawal paths provided.")
+
+    fig, ax = _ensure_fig_ax(ax, figsize)
+    selected = withdrawal_paths[:min(len(withdrawal_paths), num_paths)]
+    for path in selected:
+        x_values = range(starting_age, starting_age + len(path))
+        ax.plot(x_values, path, alpha=0.65)
+
+    title = "Annual Portfolio Withdrawal Paths"
+    if strategy_name:
+        title += f" — {strategy_name}"
+    ax.set_title(title)
+    ax.set_xlabel("Age")
+    ax.set_ylabel("Withdrawal Amount ($)")
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight")
+
+    return fig, ax
+
+
+def plot_withdrawal_comparison(
+    strategy_withdrawals: Dict[str, List[List[float]]],
+    starting_age: int = 25,
+    percentile: float = 50.0,
+    ax: Optional[plt.Axes] = None,
+    figsize: Tuple[int, int] = (12, 6),
+    save_path: Optional[str] = None,
+) -> Tuple[plt.Figure, plt.Axes]:
+    """Plot a comparison of a specific percentile of withdrawal amounts over time across multiple strategies."""
+    if not strategy_withdrawals:
+        raise ValueError("No strategy withdrawal data provided.")
+
+    fig, ax = _ensure_fig_ax(ax, figsize)
+
+    for label, paths in strategy_withdrawals.items():
+        if not paths:
+            continue
+        max_len = max(len(p) for p in paths)
+        padded_paths = []
+        for p in paths:
+            if len(p) < max_len:
+                padded_paths.append(p + [0.0] * (max_len - len(p)))
+            else:
+                padded_paths.append(p)
+        padded_paths_arr = np.array(padded_paths)
+
+        percentile_values = np.percentile(padded_paths_arr, percentile, axis=0)
+        x_values = range(starting_age, starting_age + max_len)
+        ax.plot(x_values, percentile_values, label=label, linewidth=2)
+
+    pct_name = {
+        50.0: "Median",
+        5.0: "5th Percentile",
+        10.0: "10th Percentile",
+        95.0: "95th Percentile",
+    }.get(percentile, f"{percentile}th Percentile")
+
+    ax.set_title(f"{pct_name} Portfolio Withdrawal Over Time")
+    ax.set_xlabel("Age")
+    ax.set_ylabel("Withdrawal Amount ($)")
+    ax.legend(title="Strategy")
+    ax.grid(True, linestyle="--", alpha=0.3)
+
+    if save_path:
+        fig.savefig(save_path, bbox_inches="tight")
+
+    return fig, ax
+
+

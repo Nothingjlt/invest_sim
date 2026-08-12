@@ -12,6 +12,8 @@ from src.visualization import (
     plot_summary_metrics,
     plot_terminal_wealth_histogram,
     plot_simulation_paths,
+    plot_withdrawal_paths,
+    plot_withdrawal_comparison,
 )
 
 
@@ -117,5 +119,46 @@ def test_simulation_paths_from_simulator():
     # 10 trials × 1 line each
     assert len(ax.get_lines()) == 10
     assert ax.get_lines()[0].get_xdata()[0] == 25
+    plt.close(fig)
+
+
+def test_plot_withdrawal_paths():
+    paths = [
+        [0.0, 0.0, 100.0, 110.0],
+        [0.0, 0.0, 90.0, 80.0],
+    ]
+    fig, ax = plot_withdrawal_paths(paths, strategy_name="Test Strategy", num_paths=2, starting_age=25)
+    assert "Annual Portfolio Withdrawal Paths" in ax.get_title()
+    assert "Test Strategy" in ax.get_title()
+    assert ax.get_xlabel() == "Age"
+    assert ax.get_ylabel() == "Withdrawal Amount ($)"
+    assert len(ax.get_lines()) == 2
+    assert list(ax.get_lines()[0].get_xdata()) == [25, 26, 27, 28]
+    plt.close(fig)
+
+
+def test_plot_withdrawal_comparison():
+    strategy_withdrawals = {
+        "Strategy A": [
+            [0.0, 100.0, 100.0],
+            [0.0, 120.0, 120.0],
+        ],
+        "Strategy B": [
+            [0.0, 50.0, 50.0],
+            [0.0, 60.0, 60.0],
+        ],
+    }
+    fig, ax = plot_withdrawal_comparison(strategy_withdrawals, starting_age=30, percentile=50.0)
+    assert "Median Portfolio Withdrawal Over Time" in ax.get_title()
+    assert ax.get_xlabel() == "Age"
+    assert ax.get_ylabel() == "Withdrawal Amount ($)"
+    assert len(ax.get_lines()) == 2
+    labels = [line.get_label() for line in ax.get_lines()]
+    assert "Strategy A" in labels
+    assert "Strategy B" in labels
+    line_a = [line for line in ax.get_lines() if line.get_label() == "Strategy A"][0]
+    line_b = [line for line in ax.get_lines() if line.get_label() == "Strategy B"][0]
+    assert list(line_a.get_ydata()) == [0.0, 110.0, 110.0]
+    assert list(line_b.get_ydata()) == [0.0, 55.0, 55.0]
     plt.close(fig)
 
