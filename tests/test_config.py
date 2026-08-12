@@ -27,3 +27,19 @@ def test_invalid_market_weights_raises_error():
     ]
     with pytest.raises(ValueError, match="Total market weights must sum to 1.0."):
         SimulationConfig(markets=markets).validate()
+
+
+def test_decumulation_granularity_valid_values():
+    """Both 'annual' and 'monthly' must pass validation."""
+    for granularity in ("annual", "monthly"):
+        config = SimulationConfig(decumulation_granularity=granularity)
+        config.validate()  # should not raise
+
+
+def test_decumulation_granularity_invalid_value_raises_error():
+    """Any value other than 'annual' or 'monthly' must raise ValueError."""
+    with pytest.raises(ValueError, match="decumulation_granularity must be"):
+        SimulationConfig(decumulation_granularity="weekly").validate()
+
+    with pytest.raises(ValueError, match="decumulation_granularity must be"):
+        SimulationConfig(decumulation_granularity="").validate()

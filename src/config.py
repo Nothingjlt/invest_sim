@@ -51,6 +51,14 @@ class SimulationConfig:
     withdrawal_floor_inflation_adjusted: bool = False
     # If True, grow withdrawal_floor by realized inflation each year.
 
+    decumulation_granularity: str = "annual"
+    # Controls the time-step used during the retirement (decumulation) phase.
+    # "annual"  – one withdrawal per year (default, backward-compatible).
+    # "monthly" – withdrawals at the beginning of each calendar month,
+    #              matching the timing semantics in Anarkulova et al. (2023).
+    #              Annual market returns are converted to monthly compounded
+    #              rates: r_m = (1 + R_annual)^(1/12) - 1.
+
     # Markets (Synthetic placeholders for now)
     # Allows 'choice of markets to invest' by defining asset classes here.
     markets: List[MarketConfig] = field(
@@ -98,6 +106,13 @@ class SimulationConfig:
         asset_names = [m.name for m in self.markets]
         if len(asset_names) != len(set(asset_names)):
             raise ValueError("Duplicate asset names detected in market configuration.")
+
+        # Decumulation granularity
+        if self.decumulation_granularity not in {"annual", "monthly"}:
+            raise ValueError(
+                f"decumulation_granularity must be 'annual' or 'monthly', "
+                f"got {self.decumulation_granularity!r}."
+            )
 
         # Withdrawal cap/floor consistency
         if (

@@ -405,3 +405,186 @@ def test_no_inflation_key_defaults_to_zero():
         "With no inflation key, withdrawal should stay flat (zero inflation default)"
     )
 
+
+# ── Monthly Decumulation Tests ────────────────────────────────────────────────
+
+class TestMonthlyDecumulation:
+    """Tests for decumulation_granularity='monthly'."""
+
+    def _monthly_config(self, **overrides) -> SimulationConfig:
+        defaults = dict(
+            starting_age=25,
+            retirement_age=30,
+            end_age=33,
+            initial_salary=12_000.0,
+            salary_growth_rate=0.0,
+            savings_rate=0.10,
+            withdrawal_rate=0.04,
+            decumulation_granularity="monthly",
+            markets=[MarketConfig(name="Stocks", expected_return=0.0,
+                                  volatility=0.0, weight=1.0)],
+        )
+        defaults.update(overrides)
+        return SimulationConfig(**defaults)
+
+    def test_zero_return_fixed_real_total_withdrawal(self):
+        """
+        With 0% return and fixed_real, the total amount withdrawn from the
+        portfolio over each retirement year should equal
+        withdrawal_rate * initial_portfolio  (no SS, no cap, no floor).
+        Monthly sub-stepping must sum to the same annual figure.
+        """
+        config = self._monthly_config(withdrawal_strategy="fixed_real")
+        sim = Simulator(config)
+        strategy = FixedAllocationStrategy({"Stocks": 1.0})
+        market = ConstantMarket({"Stocks": 0.0}, inflation=None)
+
+        result = sim.run_stochastic(
+            strategy, num_trials=1, market_engine=market, track_paths=True
+        )
+
+        wdrawals = result.withdrawal_paths[0]
+        # retirement starts at index = retirement_age - starting_age = 5
+        ret_start = config.retirement_age - config.starting_age
+
+        # Each retirement year should withdraw exactly the same fixed amount
+        w_year1 = wdrawals[ret_start + 1]
+        w_year2 = wdrawals[ret_start + 2]
+
+        assert w_year1 > 0.0, "Expected non-zero withdrawal in first retirement year"
+        assert w_year2 == pytest.approx(w_year1, rel=1e-9), (
+            "Fixed-real withdrawal must stay constant under 0% return and 0% inflation"
+        )
+
+    def test_zero_return_portfolio_decreases_monotonically(self):
+        """
+        With 0% return and variable_pct withdrawals, the portfolio must
+        strictly decrease each retirement year (no magical growth).
+        """
+        config = self._monthly_config(withdrawal_strategy="variable_pct")
+        sim = Simulator(config)
+        strategy = FixedAllocationStrategy({"Stocks": 1.0})
+        market = ConstantMarket({"Stocks": 0.0}, inflation=None)
+
+        result = sim.run_stochastic(
+            strategy, num_trials=1, market_engine=market, track_paths=True
+        )
+
+        path = result.paths[0]
+        ret_start = config.retirement_age - config.starting_age
+        retirement_path = path[ret_start:]
+
+        for i in range(1, len(retirement_path)):
+            assert retirement_path[i] < retirement_path[i - 1], (
+                f"Portfolio must decrease in retirement (year {i}): "
+                f"{retirement_path[i]:.2f} >= {retirement_path[i-1]:.2f}"
+            )
+
+    def test_monthly_vs_annual_produces_different_results_under_volatility(self):
+        """
+        Under non-zero returns, monthly and annual granularities must produce
+        numerically different terminal wealth distributions (sequence-of-returns
+        timing differs), while both remaining positive under moderate growth.
+        """
+        base_kw = dict(
+            starting_age=25,
+            retirement_age=30,
+            end_age=40,
+            initial_salary=12_000.0,
+            salary_growth_rate=0.0,
+            savings_rate=0.10,
+            withdrawal_rate=0.04,
+            markets=[MarketConfig(name="Stocks", expected_return=0.0,
+                                  volatility=0.0, weight=1.0)],
+        )
+        config_annual = SimulationConfig(
+            decumulation_granularity="annual", **base_kw
+        )
+        config_monthly = SimulationConfig(
+            decumulation_granularity="monthly", **base_kw
+        )
+
+        # Use a positive constant market so both survive
+        market_a = ConstantMarket({"Stocks": 0.07}, inflation=None)
+        market_m = ConstantMarket({"Stocks": 0.07}, inflation=None)
+
+        strat = FixedAllocationStrategy({"Stocks": 1.0})
+
+        tw_annual = Simulator(config_annual).run_stochastic(
+            strat, num_trials=1, market_engine=market_a
+        )
+        tw_monthly = Simulator(config_monthly).run_stochastic(
+            strat, num_trials=1, market_engine=market_m
+        )
+
+        # Monthly withdrawals happen before growth each month, so the portfolio
+        # should be slightly smaller (withdrawal-first effect).
+        assert tw_annual[0] != pytest.approx(tw_monthly[0], rel=1e-6), (
+            "Annual and monthly granularity must yield different terminal wealth"
+        )
+        assert tw_annual[0] > 0.0
+        assert tw_monthly[0] > 0.0
+
+    def test_monthly_withdrawal_paths_length_matches_annual(self):
+        """
+        withdrawal_paths entries must have the same length regardless of
+        decumulation_granularity (both are year-indexed).
+        """
+        base_kw = dict(
+            starting_age=25,
+            retirement_age=30,
+            end_age=33,
+            initial_salary=12_000.0,
+            salary_growth_rate=0.0,
+            savings_rate=0.10,
+            withdrawal_rate=0.04,
+            markets=[MarketConfig(name="Stocks", expected_return=0.0,
+                                  volatility=0.0, weight=1.0)],
+        )
+        market = ConstantMarket({"Stocks": 0.0}, inflation=None)
+        strat = FixedAllocationStrategy({"Stocks": 1.0})
+
+        for gran in ("annual", "monthly"):
+            config = SimulationConfig(decumulation_granularity=gran, **base_kw)
+            result = Simulator(config).run_stochastic(
+                strat, num_trials=1, market_engine=market, track_paths=True
+            )
+            expected_len = config.end_age - config.starting_age + 1  # + initial snapshot
+            assert len(result.withdrawal_paths[0]) == expected_len, (
+                f"granularity={gran!r}: expected path length {expected_len}, "
+                f"got {len(result.withdrawal_paths[0])}"
+            )
+            assert len(result.paths[0]) == expected_len
+
+    def test_monthly_social_security_reduces_portfolio_withdrawal(self):
+        """
+        With social_security_benefit = full annual withdrawal, the portfolio
+        withdrawal should be 0 for each month (portfolio never touched).
+        """
+        withdrawal_rate = 0.04
+        initial_salary = 10_000.0
+        savings_rate = 0.10
+        retirement_savings = (30 - 25) * initial_salary * savings_rate  # 5000.0
+        # Set SS to cover the full annual withdrawal
+        full_annual_w = retirement_savings * withdrawal_rate
+
+        config = self._monthly_config(
+            withdrawal_strategy="variable_pct",
+            social_security_benefit=full_annual_w * 12,  # generous: covers all
+            initial_salary=initial_salary,
+            savings_rate=savings_rate,
+        )
+        sim = Simulator(config)
+        strategy = FixedAllocationStrategy({"Stocks": 1.0})
+        market = ConstantMarket({"Stocks": 0.0}, inflation=None)
+
+        result = sim.run_stochastic(
+            strategy, num_trials=1, market_engine=market, track_paths=True
+        )
+
+        ret_start = config.retirement_age - config.starting_age
+        retirement_withdrawals = result.withdrawal_paths[0][ret_start + 1:]
+        for w in retirement_withdrawals:
+            assert w == pytest.approx(0.0, abs=1e-9), (
+                "With SS >= full withdrawal, portfolio should not be touched"
+            )

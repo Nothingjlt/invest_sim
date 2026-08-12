@@ -41,8 +41,10 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 
 2. **Run Tests**:
    ```bash
-   PYTHONPATH=. pytest tests/
+   pytest tests/
    ```
+   *(A root `conftest.py` automatically adds the project root to `sys.path`.)*
+
 
 ## Usage Example
 
@@ -250,7 +252,7 @@ This dynamically calculates:
 - **Sensitivity Analysis Automation**: A runner that "sweeps" through parameters (e.g., varying savings rates) to find optimal inflection points.
 - **Web Dashboard**: Create a Streamlit or Dash interface for interactive simulations.
 - **Withdrawl amount updates** *(done)*: Withdrawal can now be inflation-adjusted (using realized CPI from market data), capped at a configurable maximum, or bound from below by a minimum real expenditure floor. Both cap and floor can themselves be inflation-adjusted. See `SimulationConfig` fields: `withdrawal_inflation_adjusted`, `withdrawal_cap`, `withdrawal_cap_inflation_adjusted`, `withdrawal_floor`, `withdrawal_floor_inflation_adjusted`.
-- **Variable withdrawal timing granularity**: The paper specifies that variable-pct withdrawals are evaluated at the *beginning of each month*. The current simulator runs in annual steps, which approximates this. A future increment should introduce monthly sub-steps in the decumulation loop to exactly replicate the paper's timing semantics.
+- **Variable withdrawal timing granularity** *(done)*: The paper specifies that variable-pct withdrawals are evaluated at the *beginning of each month*. A new `decumulation_granularity` field on `SimulationConfig` (default `"annual"`) controls this. Set it to `"monthly"` to enable 12 monthly sub-steps per retirement year where each annual return is converted to a monthly compounded rate `r_m = (1 + R)^(1/12) − 1` and the withdrawal is evaluated at the beginning of each month before growth is applied. All cap, floor, and Social Security offsets are proportionally divided by 12 within each monthly sub-step; inflation adjustments occur once at year-end.
 
 ## Acknowledgements
 

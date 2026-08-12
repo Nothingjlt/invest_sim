@@ -97,6 +97,158 @@ class Simulator:
         value = annual_returns.get("Inflation")
         return value if value is not None else 0.0
 
+    # ------------------------------------------------------------------
+    # Decumulation helpers
+    # ------------------------------------------------------------------
+
+    def _annual_decumulation_step(
+        self,
+        investor: "Investor",
+        annual_returns: Dict[str, float],
+        target_alloc: Dict[str, float],
+        fixed_withdrawal_amount: float,
+        current_cap: Optional[float],
+        current_floor: Optional[float],
+    ) -> tuple[float, float, float, Optional[float], Optional[float]]:
+        """Perform one *annual* decumulation step.
+
+        Returns
+        -------
+        (actual_withdrawn, new_fixed_withdrawal_amount, inflation,
+         new_cap, new_floor)
+        """
+        # a) Market growth already applied before calling this helper.
+
+        # b) Compute raw withdrawal target (annual)
+        if self.config.withdrawal_strategy == "fixed_real":
+            raw_withdrawal = fixed_withdrawal_amount
+        else:  # variable_pct
+            raw_withdrawal = (
+                investor.total_portfolio_value * self.config.withdrawal_rate
+            )
+
+        # c) Apply cap (before social security offset)
+        if current_cap is not None:
+            raw_withdrawal = min(raw_withdrawal, current_cap)
+
+        # d) Social security offset
+        net_from_portfolio = max(
+            0.0, raw_withdrawal - self.config.social_security_benefit
+        )
+
+        # e) Apply floor: ensure minimum real expenditure is met from portfolio
+        if current_floor is not None:
+            floor_from_portfolio = max(
+                0.0,
+                current_floor - self.config.social_security_benefit,
+            )
+            net_from_portfolio = max(net_from_portfolio, floor_from_portfolio)
+
+        # f) Execute withdrawal
+        actual_withdrawn = investor.withdraw(net_from_portfolio, target_alloc)
+
+        # g) Step inflation trackers at end of year
+        inflation = self._get_inflation(annual_returns)
+        if self.config.withdrawal_inflation_adjusted:
+            fixed_withdrawal_amount *= 1 + inflation
+        if self.config.withdrawal_cap_inflation_adjusted and current_cap is not None:
+            current_cap *= 1 + inflation
+        if self.config.withdrawal_floor_inflation_adjusted and current_floor is not None:
+            current_floor *= 1 + inflation
+
+        return (
+            actual_withdrawn,
+            fixed_withdrawal_amount,
+            inflation,
+            current_cap,
+            current_floor,
+        )
+
+    def _monthly_decumulation_step(
+        self,
+        investor: "Investor",
+        annual_returns: Dict[str, float],
+        target_alloc: Dict[str, float],
+        fixed_withdrawal_amount: float,
+        current_cap: Optional[float],
+        current_floor: Optional[float],
+    ) -> tuple[float, float, float, Optional[float], Optional[float]]:
+        """Perform one *annual* decumulation step via 12 monthly sub-steps.
+
+        Follows Anarkulova et al. (2023) timing semantics:
+        - Withdrawal is evaluated at the **beginning of each month**.
+        - The annual market return is converted to monthly compounded rates:
+            r_monthly = (1 + R_annual)^(1/12) - 1
+        - Per-month share of annual quantities (withdrawal target, SS, cap,
+          floor) is 1/12 of the annual figure.
+        - Year-end inflation adjustment is performed once, after the 12th month.
+        - If an asset's 1 + R_annual is non-positive the monthly return is
+          treated as -1 (total loss in that year).
+
+        Returns
+        -------
+        (total_withdrawn_this_year, new_fixed_withdrawal_amount, inflation,
+         new_cap, new_floor)
+        """
+        # Convert annual returns → monthly compounded rates (per asset)
+        monthly_returns: Dict[str, float] = {}
+        for asset, r_annual in annual_returns.items():
+            base = 1.0 + r_annual
+            if base <= 0.0:
+                monthly_returns[asset] = -1.0  # total loss this year
+            else:
+                monthly_returns[asset] = base ** (1.0 / 12.0) - 1.0
+
+        # Monthly split constants (SS, cap, floor are shared equally across months)
+        ss_monthly = self.config.social_security_benefit / 12.0
+        annual_w_rate = self.config.withdrawal_rate / 12.0  # for variable_pct
+
+        total_withdrawn = 0.0
+
+        for _month in range(12):
+            # --- Beginning-of-month withdrawal ---
+            if self.config.withdrawal_strategy == "fixed_real":
+                raw_w = fixed_withdrawal_amount / 12.0
+            else:  # variable_pct
+                raw_w = investor.total_portfolio_value * annual_w_rate
+
+            # Apply monthly cap
+            if current_cap is not None:
+                raw_w = min(raw_w, current_cap / 12.0)
+
+            # Social security offset (monthly)
+            net_from_portfolio = max(0.0, raw_w - ss_monthly)
+
+            # Apply monthly floor
+            if current_floor is not None:
+                floor_monthly = max(0.0, current_floor / 12.0 - ss_monthly)
+                net_from_portfolio = max(net_from_portfolio, floor_monthly)
+
+            # Execute monthly withdrawal
+            actual_m = investor.withdraw(net_from_portfolio, target_alloc)
+            total_withdrawn += actual_m
+
+            # --- End-of-month: apply monthly growth then rebalance ---
+            investor.apply_returns(monthly_returns)
+            investor.rebalance(target_alloc)
+
+        # Year-end inflation adjustment (applied once, after 12 months)
+        inflation = self._get_inflation(annual_returns)
+        if self.config.withdrawal_inflation_adjusted:
+            fixed_withdrawal_amount *= 1 + inflation
+        if self.config.withdrawal_cap_inflation_adjusted and current_cap is not None:
+            current_cap *= 1 + inflation
+        if self.config.withdrawal_floor_inflation_adjusted and current_floor is not None:
+            current_floor *= 1 + inflation
+
+        return (
+            total_withdrawn,
+            fixed_withdrawal_amount,
+            inflation,
+            current_cap,
+            current_floor,
+        )
+
     def run_stochastic(
         self,
         strategy: Strategy,
@@ -113,7 +265,19 @@ class Simulator:
         value for one trial (starting snapshot + one value per simulated year).
         When track_paths=False (default), returns a plain List[float] of terminal
         wealth values for backward compatibility.
+
+        The ``config.decumulation_granularity`` field controls the decumulation
+        time-step used during the retirement phase:
+
+        - ``"annual"``  (default): one withdrawal per year, backward-compatible.
+        - ``"monthly"``: withdrawals at the beginning of each calendar month,
+          matching the timing semantics in Anarkulova et al. (2023). Each year's
+          annual return is decomposed into 12 monthly compounded returns.
         """
+        use_monthly = (
+            getattr(self.config, "decumulation_granularity", "annual") == "monthly"
+        )
+
         terminal_wealths: List[float] = []
         paths: List[List[float]] = []
         withdrawal_paths: List[List[float]] = []
@@ -152,16 +316,19 @@ class Simulator:
                 # 1. Determine target allocation for current age
                 target_alloc = strategy.get_allocation(investor.age)
 
-                # 2. Market Growth (applied to existing holdings)
+                # 2. Fetch annual market returns
                 annual_returns = market.get_annual_returns()
-                investor.apply_returns(annual_returns)
 
                 withdrawal_amount_this_year = 0.0
 
-                # 3. Income/Savings or Withdrawal
+                # 3. Income/Savings (accumulation) or Withdrawal (decumulation)
                 if investor.age < self.config.retirement_age:
+                    # --- Accumulation Phase (unchanged) ---
+                    investor.apply_returns(annual_returns)
                     investor.earn_and_save(self.config.savings_rate, target_alloc)
                     investor.grow_salary(self.config.salary_growth_rate)
+                    # Annual rebalancing for accumulation phase
+                    investor.rebalance(target_alloc)
                 else:
                     # --- Decumulation Phase ---
 
@@ -171,46 +338,44 @@ class Simulator:
                             investor.total_portfolio_value * self.config.withdrawal_rate
                         )
 
-                    # a) Compute raw withdrawal target
-                    if self.config.withdrawal_strategy == "fixed_real":
-                        raw_withdrawal = fixed_withdrawal_amount
-                    else:  # variable_pct
-                        raw_withdrawal = (
-                            investor.total_portfolio_value * self.config.withdrawal_rate
+
+                    if use_monthly:
+                        # Monthly sub-stepping: growth and rebalancing happen
+                        # inside _monthly_decumulation_step.
+                        (
+                            withdrawal_amount_this_year,
+                            fixed_withdrawal_amount,
+                            _inflation,
+                            current_cap,
+                            current_floor,
+                        ) = self._monthly_decumulation_step(
+                            investor=investor,
+                            annual_returns=annual_returns,
+                            target_alloc=target_alloc,
+                            fixed_withdrawal_amount=fixed_withdrawal_amount,
+                            current_cap=current_cap,
+                            current_floor=current_floor,
                         )
-
-                    # b) Apply cap (before social security offset)
-                    if current_cap is not None:
-                        raw_withdrawal = min(raw_withdrawal, current_cap)
-
-                    # c) Social security offset
-                    net_from_portfolio = max(
-                        0.0, raw_withdrawal - self.config.social_security_benefit
-                    )
-
-                    # d) Apply floor: ensure minimum real expenditure is met from portfolio
-                    if current_floor is not None:
-                        floor_from_portfolio = max(
-                            0.0,
-                            current_floor - self.config.social_security_benefit,
+                    else:
+                        # Annual path: apply market growth first, then withdraw.
+                        investor.apply_returns(annual_returns)
+                        (
+                            withdrawal_amount_this_year,
+                            fixed_withdrawal_amount,
+                            _inflation,
+                            current_cap,
+                            current_floor,
+                        ) = self._annual_decumulation_step(
+                            investor=investor,
+                            annual_returns=annual_returns,
+                            target_alloc=target_alloc,
+                            fixed_withdrawal_amount=fixed_withdrawal_amount,
+                            current_cap=current_cap,
+                            current_floor=current_floor,
                         )
-                        net_from_portfolio = max(net_from_portfolio, floor_from_portfolio)
+                        # Annual rebalancing for the annual path
+                        investor.rebalance(target_alloc)
 
-                    # e) Execute withdrawal
-                    actual_withdrawn = investor.withdraw(net_from_portfolio, target_alloc)
-                    withdrawal_amount_this_year = actual_withdrawn
-
-                    # f) Step inflation trackers at end of year
-                    inflation = self._get_inflation(annual_returns)
-                    if self.config.withdrawal_inflation_adjusted:
-                        fixed_withdrawal_amount *= (1 + inflation)
-                    if self.config.withdrawal_cap_inflation_adjusted and current_cap is not None:
-                        current_cap *= (1 + inflation)
-                    if self.config.withdrawal_floor_inflation_adjusted and current_floor is not None:
-                        current_floor *= (1 + inflation)
-
-                # 4. Annual Rebalancing
-                investor.rebalance(target_alloc)
 
                 investor.age += 1
 
