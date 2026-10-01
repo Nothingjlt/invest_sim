@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import math
 import random
 import pandas as pd
 from typing import List, Dict
@@ -14,19 +15,59 @@ class Market(ABC):
 
 
 class SyntheticMarket(Market):
-    """Generates stochastic returns for multiple assets using Normal Distributions."""
+    """Generates bounded simple returns with lognormal gross returns."""
 
     def __init__(self, market_configs: List[MarketConfig], seed: int | None = None):
         self.configs = market_configs
+        self._lognormal_params = []
+        for config in self.configs:
+            try:
+                expected_return = float(config.expected_return)
+                volatility = float(config.volatility)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"Market '{config.name}' expected_return and volatility "
+                    "must be finite numbers."
+                ) from exc
+
+            if not math.isfinite(expected_return) or expected_return <= -1.0:
+                raise ValueError(
+                    f"Market '{config.name}' expected_return must be finite "
+                    "and greater than -1."
+                )
+            if not math.isfinite(volatility) or volatility < 0.0:
+                raise ValueError(
+                    f"Market '{config.name}' volatility must be finite and "
+                    "non-negative."
+                )
+
+            # Convert arithmetic simple-return moments to the parameters of
+            # log gross returns. This keeps the configured mean and standard
+            # deviation while ensuring every sampled gross return is positive.
+            relative_volatility = volatility / (1.0 + expected_return)
+            log_variance = 2.0 * math.log(math.hypot(1.0, relative_volatility))
+            log_mean = math.log1p(expected_return) - 0.5 * log_variance
+            if not math.isfinite(log_mean) or not math.isfinite(log_variance):
+                raise ValueError(
+                    f"Market '{config.name}' expected_return and volatility "
+                    "are outside the supported numeric range."
+                )
+            self._lognormal_params.append(
+                (config.name, expected_return, log_mean, math.sqrt(log_variance))
+            )
+
         if seed is not None:
             random.seed(seed)
 
     def get_annual_returns(self) -> Dict[str, float]:
         returns = {}
-        for config in self.configs:
-            returns[config.name] = random.gauss(
-                config.expected_return, config.volatility
-            )
+        for name, expected_return, log_mean, log_volatility in self._lognormal_params:
+            if log_volatility == 0.0:
+                returns[name] = expected_return
+            else:
+                returns[name] = math.exp(
+                    random.gauss(log_mean, log_volatility)
+                ) - 1.0
         return returns
 
 
@@ -157,4 +198,3 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
             return returns
         else:
             return super().get_annual_returns()
-
