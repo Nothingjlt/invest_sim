@@ -2,6 +2,8 @@ from abc import ABC, abstractmethod
 from typing import Dict
 from functools import wraps
 
+from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
+
 
 class Strategy(ABC):
     """Abstract base class for investment strategies."""
@@ -138,7 +140,7 @@ class BalancedStrategy(Strategy):
     """A traditional balanced strategy (60% Domestic Stocks, 40% Bonds)."""
 
     def __init__(
-        self, domestic_label: str = "Domestic Stock", bond_label: str = "Bonds"
+        self, domestic_label: str = DOMESTIC_STOCK, bond_label: str = BONDS
     ):
         self.domestic_label = domestic_label
         self.bond_label = bond_label
@@ -157,19 +159,18 @@ class PaperOptimalStrategy(Strategy):
     def __init__(
         self,
         retire_age: int = 65,
-        dom_label: str = "USA",
+        dom_label: str = DOMESTIC_STOCK,
         intl_assets: Dict[str, float] | None = None,
-        bills_label: str = "Bills",
+        bills_label: str = BILLS,
     ):
         self.retire_age = retire_age
         self.dom_label = dom_label
         # Default to a broad international developed set if not provided
-        self.intl_assets = intl_assets or {
-            "GBR": 0.3,
-            "JPN": 0.3,
-            "FRA": 0.2,
-            "DEU": 0.2,
-        }
+        self.intl_assets = (
+            {INTERNATIONAL_STOCK: 1.0}
+            if intl_assets is None
+            else dict(intl_assets)
+        )
         self.bills_label = bills_label
 
         # Validation for intl_assets
@@ -214,20 +215,19 @@ class PaperTDFStrategy(Strategy):
         self,
         start_age: int = 25,
         retire_age: int = 65,
-        dom_label: str = "USA",
+        dom_label: str = DOMESTIC_STOCK,
         intl_assets: Dict[str, float] | None = None,
-        bond_label: str = "Bonds",
-        bills_label: str = "Bills",
+        bond_label: str = BONDS,
+        bills_label: str = BILLS,
     ):
         self.start_age = start_age
         self.retire_age = retire_age
         self.dom_label = dom_label
-        self.intl_assets = intl_assets or {
-            "GBR": 0.3,
-            "JPN": 0.3,
-            "FRA": 0.2,
-            "DEU": 0.2,
-        }
+        self.intl_assets = (
+            {INTERNATIONAL_STOCK: 1.0}
+            if intl_assets is None
+            else dict(intl_assets)
+        )
         self.bond_label = bond_label
         self.bills_label = bills_label
 

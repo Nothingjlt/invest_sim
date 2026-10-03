@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
+from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
+
 
 @dataclass
 class MarketConfig:
@@ -64,7 +66,7 @@ class SimulationConfig:
     markets: List[MarketConfig] = field(
         default_factory=lambda: [
             MarketConfig(
-                name="Domestic Stock", expected_return=0.07, volatility=0.15, weight=1.0
+                name=DOMESTIC_STOCK, expected_return=0.07, volatility=0.15, weight=1.0
             )
         ]
     )
@@ -133,22 +135,22 @@ class SimulationConfig:
         """
         return [
             MarketConfig(
-                name="Domestic Stock",
+                name=DOMESTIC_STOCK,
                 expected_return=0.05,
                 volatility=0.17,
                 weight=0.33,
             ),
             MarketConfig(
-                name="International Stock",
+                name=INTERNATIONAL_STOCK,
                 expected_return=0.07,
                 volatility=0.23,
                 weight=0.67,
             ),
             MarketConfig(
-                name="Bonds", expected_return=0.01, volatility=0.10, weight=0.0
+                name=BONDS, expected_return=0.01, volatility=0.10, weight=0.0
             ),
             MarketConfig(
-                name="Bills", expected_return=0.00, volatility=0.02, weight=0.0
+                name=BILLS, expected_return=0.00, volatility=0.02, weight=0.0
             ),
         ]
 
@@ -188,12 +190,12 @@ class SimulationConfig:
         # Global Fixed Income
         configs.append(
             MarketConfig(
-                name="Bonds", expected_return=0.01, volatility=0.10, weight=0.0
+                name=BONDS, expected_return=0.01, volatility=0.10, weight=0.0
             )
         )
         configs.append(
             MarketConfig(
-                name="Bills", expected_return=0.00, volatility=0.02, weight=0.0
+                name=BILLS, expected_return=0.00, volatility=0.02, weight=0.0
             )
         )
 

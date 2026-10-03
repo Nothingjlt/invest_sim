@@ -1,5 +1,6 @@
 import random
 from typing import Dict, List, NamedTuple, Optional, Union
+from src.assets import require_return_series
 from src.config import SimulationConfig
 from src.investor import Investor
 from src.market import Market, SyntheticMarket, BootstrapMarket
@@ -315,9 +316,13 @@ class Simulator:
             while investor.age < trial_end_age:
                 # 1. Determine target allocation for current age
                 target_alloc = strategy.get_allocation(investor.age)
-
-                # 2. Fetch annual market returns
                 annual_returns = market.get_annual_returns()
+                require_return_series(
+                    (asset for asset, weight in target_alloc.items() if weight != 0.0),
+                    annual_returns,
+                    context=f"{type(strategy).__name__} at age {investor.age}",
+                )
+                investor.rebalance(target_alloc)
 
                 withdrawal_amount_this_year = 0.0
 
