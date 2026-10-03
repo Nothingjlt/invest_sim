@@ -3,6 +3,7 @@ import math
 import random
 import pandas as pd
 from typing import List, Dict
+from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK
 from src.config import MarketConfig
 
 
@@ -79,6 +80,21 @@ class BootstrapMarket(Market):
 
     def __init__(self, csv_path: str, block_size: int = 10, seed: int | None = None):
         self.data = pd.read_csv(csv_path)
+        # Keep the original country series and expose the former default paper
+        # basket under the aggregate names used by the current strategies.
+        if DOMESTIC_STOCK not in self.data and "USA" in self.data:
+            self.data[DOMESTIC_STOCK] = self.data["USA"]
+        international_weights = {"GBR": 0.3, "JPN": 0.3, "FRA": 0.2, "DEU": 0.2}
+        if INTERNATIONAL_STOCK not in self.data and all(
+            country in self.data for country in international_weights
+        ):
+            # Investor.apply_returns leaves NaN country holdings unchanged.
+            # Preserve that behavior without redistributing missing countries'
+            # weights across the rest of the basket.
+            self.data[INTERNATIONAL_STOCK] = sum(
+                weight * self.data[country].fillna(0.0)
+                for country, weight in international_weights.items()
+            )
         self.block_size = block_size
         if seed is not None:
             random.seed(seed)
