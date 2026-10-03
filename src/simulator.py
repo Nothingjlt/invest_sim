@@ -317,6 +317,9 @@ class Simulator:
                 # 1. Determine target allocation for current age
                 target_alloc = strategy.get_allocation(investor.age)
                 annual_returns = market.get_annual_returns()
+                target_alloc = strategy.resolve_allocation_for_market(
+                    target_alloc, annual_returns.keys()
+                )
                 require_return_series(
                     (asset for asset, weight in target_alloc.items() if weight != 0.0),
                     annual_returns,

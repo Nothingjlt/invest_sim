@@ -56,14 +56,14 @@ def short_country_config(**changes):
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
-def test_country_bootstrap_exposes_weighted_aggregate_equities(
+def test_country_bootstrap_preserves_source_series_without_derived_aggregates(
     tmp_path, country_row, engine_type
 ):
     market = engine_type(write_country_csv(tmp_path, country_row), seed=1)
     returns = market.get_annual_returns()
 
-    assert returns[DOMESTIC_STOCK] == pytest.approx(0.20)
-    assert returns[INTERNATIONAL_STOCK] == pytest.approx(0.13)
+    assert DOMESTIC_STOCK not in returns
+    assert INTERNATIONAL_STOCK not in returns
     assert {name: returns[name] for name in country_row if name != "Year"} == (
         pytest.approx({name: value for name, value in country_row.items() if name != "Year"})
     )
@@ -77,7 +77,7 @@ def test_missing_country_observation_retains_its_zero_return_weight(
     returns = engine_type(write_country_csv(tmp_path, country_row)).get_annual_returns()
 
     assert math.isnan(returns["JPN"])
-    assert returns[INTERNATIONAL_STOCK] == pytest.approx(0.19)
+    assert INTERNATIONAL_STOCK not in returns
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
@@ -124,9 +124,15 @@ def test_default_paper_strategies_grow_with_country_bootstrap_at_current_age(
             weight * ret for weight, ret in zip(retirement_weights, annual_returns)
         )
     else:
+        country_returns = (0.20, 0.10, -0.20, 0.30, 0.50, 0.04, -0.02)
+        domestic, international, bonds, bills = retirement_weights
+        country_weights = (
+            domestic, international * 0.3, international * 0.3,
+            international * 0.2, international * 0.2, bonds, bills,
+        )
         retirement_growth = sum(
             weight * (1 + ret) ** (1 / 12)
-            for weight, ret in zip(retirement_weights, annual_returns)
+            for weight, ret in zip(country_weights, country_returns)
         ) ** 12
     expected_wealth = accumulation_wealth * retirement_growth
 
@@ -182,8 +188,14 @@ def test_incomplete_country_basket_fails_before_contribution(
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
-def test_default_paper_strategies_work_with_bundled_country_csv(engine_type, strategy_type):
-    config = short_country_config(retirement_age=26, end_age=27)
+@pytest.mark.parametrize("granularity", ["annual", "monthly"])
+def test_default_paper_strategies_work_with_bundled_country_csv(
+    engine_type, strategy_type, granularity
+):
+    config = short_country_config(
+        retirement_age=26, end_age=28, decumulation_granularity=granularity,
+        withdrawal_rate=0.06,
+    )
     results = []
     for mapping in [
         {},
@@ -198,3 +210,4 @@ def test_default_paper_strategies_work_with_bundled_country_csv(engine_type, str
 
     assert results[0].paths[0] == pytest.approx(results[1].paths[0])
     assert results[0].terminal_wealths == pytest.approx(results[1].terminal_wealths)
+    assert results[0].withdrawal_paths[0] == pytest.approx(results[1].withdrawal_paths[0])
