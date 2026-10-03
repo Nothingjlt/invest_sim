@@ -79,6 +79,13 @@ def test_missing_country_observation_retains_its_zero_return_weight(
     assert math.isnan(returns["JPN"])
     assert INTERNATIONAL_STOCK not in returns
 
+    investor = Investor(25, 0.0, {"GBR": 30.0, "JPN": 30.0, "FRA": 20.0, "DEU": 20.0})
+    investor.apply_returns(returns)
+    assert investor.holdings == pytest.approx(
+        {"GBR": 33.0, "JPN": 30.0, "FRA": 26.0, "DEU": 30.0}
+    )
+    assert investor.total_portfolio_value == pytest.approx(119.0)
+
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
 @pytest.mark.parametrize("aggregate_value", [0.75, float("nan")])
@@ -94,6 +101,15 @@ def test_existing_aggregate_series_are_preserved(
             assert math.isnan(returns[name])
         else:
             assert returns[name] == aggregate_value
+
+    investor = Investor(25, 0.0, {DOMESTIC_STOCK: 40.0, INTERNATIONAL_STOCK: 60.0})
+    investor.apply_returns(returns)
+    expected = (
+        {DOMESTIC_STOCK: 40.0, INTERNATIONAL_STOCK: 60.0}
+        if math.isnan(aggregate_value)
+        else {DOMESTIC_STOCK: 70.0, INTERNATIONAL_STOCK: 105.0}
+    )
+    assert investor.holdings == pytest.approx(expected)
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)

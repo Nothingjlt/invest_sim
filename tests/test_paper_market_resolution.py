@@ -20,6 +20,84 @@ AGGREGATE_MAPPING = {
     "intl_assets": {INTERNATIONAL_STOCK: 1.0},
 }
 
+# Independent balances: JPN keeps its 30% share of the international sleeve
+# with growth factor 1. Annual growth precedes withdrawals; monthly withdrawals
+# precede separately compounded constituent growth and monthly rebalancing.
+NAN_COUNTRY_PATHS = {
+    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2193.3, 2359.77147, 2572.008649249, 2840.985625068],
+    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2193.3, 2329.822167282, 2505.266440816, 2728.657321248],
+    (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2063.4975, 2064.52924875, 2061.909122799, 2055.304754864],
+    (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2063.4975, 2055.544392157, 2043.299873330, 2026.400076736],
+}
+NAN_COUNTRY_WITHDRAWALS = {
+    PaperOptimalStrategy: [0.0, 0.0, 0.0, 131.598, 135.54594, 139.6123182],
+    PaperTDFStrategy: [0.0, 0.0, 0.0, 123.80985, 127.5241455, 131.349869865],
+}
+
+# Missing aggregates preserve both equity sleeves; Bonds and Bills still grow.
+NAN_AGGREGATE_PATHS = {
+    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2000.0, 1869.2, 1737.525056, 1604.587474819],
+    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2000.0, 1869.480573723, 1738.037216716, 1605.279472750],
+    (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2026.62, 1960.146864, 1888.217742701, 1810.574795822],
+    (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2026.62, 1957.946024587, 1883.717680770, 1803.674038931],
+}
+NAN_AGGREGATE_WITHDRAWALS = {
+    PaperOptimalStrategy: [0.0, 0.0, 0.0, 120.0, 123.6, 127.308],
+    PaperTDFStrategy: [0.0, 0.0, 0.0, 121.5972, 125.245116, 129.00246948],
+}
+
+
+EXPLICIT_OVERLAP_CASES = [
+    pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}},
+                 {"USA": 1.0}, {"USA": 0.73, "Bills": 0.27}, id="optimal-equities"),
+    pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 0.25, "JPN": 0.75}},
+                 {"USA": 0.4975, "JPN": 0.5025}, {"USA": 0.3775, "JPN": 0.3525, "Bills": 0.27},
+                 id="optimal-partial-equities"),
+    pytest.param(PaperOptimalStrategy, {"intl_assets": {DOMESTIC_STOCK: 1.0}},
+                 {DOMESTIC_STOCK: 1.0}, {DOMESTIC_STOCK: 0.73, "Bills": 0.27},
+                 id="optimal-default-domestic"),
+    pytest.param(PaperOptimalStrategy, {"dom_label": INTERNATIONAL_STOCK},
+                 {INTERNATIONAL_STOCK: 1.0}, {INTERNATIONAL_STOCK: 0.73, "Bills": 0.27},
+                 id="optimal-default-international"),
+    pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "USA"},
+                 {"USA": 0.33, "JPN": 0.67}, {"USA": 0.53, "JPN": 0.47}, id="optimal-bills-domestic"),
+    pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "JPN"},
+                 {"USA": 0.33, "JPN": 0.67}, {"USA": 0.26, "JPN": 0.74}, id="optimal-bills-international"),
+    pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}, "bills_label": "USA"},
+                 {"USA": 1.0}, {"USA": 1.0}, id="optimal-all-components"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}},
+                 {"USA": 0.90, "Bonds": 0.10, "Bills": 0.0},
+                 {"USA": 0.17, "Bonds": 0.73, "Bills": 0.10}, id="tdf-equities"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"USA": 0.25, "JPN": 0.75}},
+                 {"USA": 0.63, "JPN": 0.27, "Bonds": 0.10, "Bills": 0.0},
+                 {"USA": 0.1175, "JPN": 0.0525, "Bonds": 0.73, "Bills": 0.10}, id="tdf-partial-equities"),
+    pytest.param(PaperTDFStrategy, {"intl_assets": {DOMESTIC_STOCK: 1.0}},
+                 {DOMESTIC_STOCK: 0.90, "Bonds": 0.10, "Bills": 0.0},
+                 {DOMESTIC_STOCK: 0.17, "Bonds": 0.73, "Bills": 0.10}, id="tdf-default-domestic"),
+    pytest.param(PaperTDFStrategy, {"dom_label": INTERNATIONAL_STOCK},
+                 {INTERNATIONAL_STOCK: 0.90, "Bonds": 0.10, "Bills": 0.0},
+                 {INTERNATIONAL_STOCK: 0.17, "Bonds": 0.73, "Bills": 0.10}, id="tdf-default-international"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "USA"},
+                 {"USA": 0.54, "JPN": 0.36, "Bonds": 0.10},
+                 {"USA": 0.20, "JPN": 0.07, "Bonds": 0.73}, id="tdf-bills-domestic"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "JPN"},
+                 {"USA": 0.54, "JPN": 0.36, "Bonds": 0.10},
+                 {"USA": 0.10, "JPN": 0.17, "Bonds": 0.73}, id="tdf-bills-international"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bond_label": "USA"},
+                 {"USA": 0.64, "JPN": 0.36, "Bills": 0.0},
+                 {"USA": 0.83, "JPN": 0.07, "Bills": 0.10}, id="tdf-bonds-domestic"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bond_label": "JPN"},
+                 {"USA": 0.54, "JPN": 0.46, "Bills": 0.0},
+                 {"USA": 0.10, "JPN": 0.80, "Bills": 0.10}, id="tdf-bonds-international"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0},
+                                   "bond_label": "Cash", "bills_label": "Cash"},
+                 {"USA": 0.54, "JPN": 0.36, "Cash": 0.10},
+                 {"USA": 0.10, "JPN": 0.07, "Cash": 0.83}, id="tdf-bonds-bills"),
+    pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0},
+                                   "bond_label": "USA", "bills_label": "USA"},
+                 {"USA": 1.0}, {"USA": 1.0}, id="tdf-all-components"),
+]
+
 
 @pytest.fixture
 def country_returns():
@@ -109,6 +187,10 @@ def test_nan_country_constituents_match_the_explicit_basket(
         tmp_path, country_returns, engine_name, config, strategy_type(**COUNTRY_MAPPING)
     )
     assert_same_result(actual, expected)
+    expected_path = NAN_COUNTRY_PATHS[strategy_type, granularity]
+    assert actual.paths[0] == pytest.approx(expected_path)
+    assert actual.terminal_wealths == pytest.approx([expected_path[-1]])
+    assert actual.withdrawal_paths[0] == pytest.approx(NAN_COUNTRY_WITHDRAWALS[strategy_type])
 
 
 @pytest.mark.parametrize("engine_name", ["block", "stationary"])
@@ -129,6 +211,11 @@ def test_supplied_aggregates_are_authoritative_even_with_countries_and_nans(
     )
     assert_same_result(actual, expected)
     assert actual.terminal_wealths[0] != pytest.approx(country_basket.terminal_wealths[0])
+    if pd.isna(aggregate_returns[0]):
+        expected_path = NAN_AGGREGATE_PATHS[strategy_type, granularity]
+        assert actual.paths[0] == pytest.approx(expected_path)
+        assert actual.terminal_wealths == pytest.approx([expected_path[-1]])
+        assert actual.withdrawal_paths[0] == pytest.approx(NAN_AGGREGATE_WITHDRAWALS[strategy_type])
 
 
 @pytest.mark.parametrize("engine_name", ENGINES)
@@ -237,6 +324,38 @@ def test_country_resolution_adds_weights_when_default_and_custom_components_over
         assert raw == original_raw
         assert actual == pytest.approx(expected)
         assert sum(actual.values()) == pytest.approx(1.0)
+
+
+@pytest.mark.parametrize("strategy_type, mapping, young_allocation, retirement_allocation", EXPLICIT_OVERLAP_CASES)
+def test_explicit_component_overlaps_add_their_raw_weights(
+    strategy_type, mapping, young_allocation, retirement_allocation
+):
+    strategy = strategy_type(**mapping)
+    assert strategy.get_allocation(25) == pytest.approx(young_allocation)
+    assert strategy.get_allocation(65) == pytest.approx(retirement_allocation)
+    for age in [25, 63, 64, 65, 66, 67, 70]:
+        allocation = strategy.get_allocation(age)
+        assert sum(allocation.values()) == pytest.approx(1.0)
+        assert all(weight >= 0.0 for weight in allocation.values())
+
+
+@pytest.mark.parametrize("strategy_type, mapping, young_allocation, retirement_allocation", EXPLICIT_OVERLAP_CASES)
+@pytest.mark.parametrize("engine_name", ENGINES)
+@pytest.mark.parametrize("granularity", ["annual", "monthly"])
+def test_explicit_component_overlaps_conserve_zero_return_wealth(
+    tmp_path, country_returns, strategy_type, mapping, young_allocation,
+    retirement_allocation, engine_name, granularity
+):
+    returns = {asset: 0.0 for asset in country_returns}
+    returns.update({DOMESTIC_STOCK: 0.0, INTERNATIONAL_STOCK: 0.0, "Cash": 0.0})
+    config = lifecycle_config(returns, engine_name, granularity)
+    result = simulate(tmp_path, returns, engine_name, config, strategy_type(**mapping))
+
+    # Two 1000 contributions fund three fixed 120 withdrawals. Zero returns
+    # leave all other wealth intact, including during monthly rebalancing.
+    assert result.paths[0] == pytest.approx([0.0, 1000.0, 2000.0, 1880.0, 1760.0, 1640.0])
+    assert result.withdrawal_paths[0] == pytest.approx([0.0, 0.0, 0.0, 120.0, 120.0, 120.0])
+    assert result.terminal_wealths == pytest.approx([1640.0])
 
 
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)

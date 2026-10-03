@@ -227,6 +227,7 @@ class PaperOptimalStrategy(_PaperStrategy):
             raise ValueError("International asset weights must sum to 1.0")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
+        bills_weight = 0.0
         # Before retirement or after age 70: standard 100% equity split (33/67)
         if age < self.retire_age or age >= 70:
             dom_weight = 0.33
@@ -243,12 +244,10 @@ class PaperOptimalStrategy(_PaperStrategy):
         # Map weights to actual assets
         allocation = {self.dom_label: dom_weight}
         for asset, rel_weight in self.intl_assets.items():
-            allocation[asset] = intl_weight * rel_weight
+            allocation[asset] = allocation.get(asset, 0.0) + intl_weight * rel_weight
 
         if age >= self.retire_age and age < 70:
-            allocation[self.bills_label] = 1.0 - sum(
-                v for k, v in allocation.items() if k != self.bills_label
-            )
+            allocation[self.bills_label] = allocation.get(self.bills_label, 0.0) + bills_weight
 
         return allocation
 
@@ -299,13 +298,12 @@ class PaperTDFStrategy(_PaperStrategy):
         bonds_w = 0.10 + (0.73 - 0.10) * p
         bills_w = 0.00 + (0.10 - 0.00) * p
 
-        allocation = {
-            self.dom_label: dom_w,
-            self.bond_label: bonds_w,
-            self.bills_label: bills_w,
-        }
+        # Components can refer to the same holding; preserve each one's weight.
+        allocation = {self.dom_label: dom_w}
+        for asset, weight in [(self.bond_label, bonds_w), (self.bills_label, bills_w)]:
+            allocation[asset] = allocation.get(asset, 0.0) + weight
 
         for asset, rel_weight in self.intl_assets.items():
-            allocation[asset] = intl_w * rel_weight
+            allocation[asset] = allocation.get(asset, 0.0) + intl_w * rel_weight
 
         return allocation
