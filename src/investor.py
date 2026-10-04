@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Dict
 
+from src.assets import require_return_series
+
 
 @dataclass
 class Investor:
@@ -43,6 +45,11 @@ class Investor:
 
     def apply_returns(self, returns: Dict[str, float]):
         """Applies annual returns to each asset class."""
+        require_return_series(
+            (asset for asset, value in self.holdings.items() if value != 0.0),
+            returns,
+            context=f"Investor at age {self.age}",
+        )
         for asset, ret in returns.items():
             if asset in self.holdings:
                 if ret == ret and ret is not None:

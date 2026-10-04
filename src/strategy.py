@@ -1,6 +1,8 @@
 from abc import ABC, abstractmethod
-from typing import Dict
+from typing import Dict, Iterable
 from functools import wraps
+
+from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
 
 
 class Strategy(ABC):
@@ -19,6 +21,12 @@ class Strategy(ABC):
     def get_allocation(self, age: float) -> Dict[str, float]:
         """Returns the target portfolio allocation for a given age."""
         return self._get_allocation(age)
+
+    def resolve_allocation_for_market(
+        self, allocation: Dict[str, float], available_assets: Iterable[str]
+    ) -> Dict[str, float]:
+        """Resolve an allocation against the current market's return series."""
+        return allocation
 
     @abstractmethod
     def _get_allocation(self, age: float) -> Dict[str, float]:
@@ -138,7 +146,7 @@ class BalancedStrategy(Strategy):
     """A traditional balanced strategy (60% Domestic Stocks, 40% Bonds)."""
 
     def __init__(
-        self, domestic_label: str = "Domestic Stock", bond_label: str = "Bonds"
+        self, domestic_label: str = DOMESTIC_STOCK, bond_label: str = BONDS
     ):
         self.domestic_label = domestic_label
         self.bond_label = bond_label
@@ -147,7 +155,49 @@ class BalancedStrategy(Strategy):
         return {self.domestic_label: 0.60, self.bond_label: 0.40}
 
 
-class PaperOptimalStrategy(Strategy):
+class _PaperStrategy(Strategy):
+    _country_international_assets = {"GBR": 0.3, "JPN": 0.3, "FRA": 0.2, "DEU": 0.2}
+
+    def resolve_allocation_for_market(
+        self, allocation: Dict[str, float], available_assets: Iterable[str]
+    ) -> Dict[str, float]:
+        # Subclasses can provide their own constructor and allocation hook.
+        # Only resolve defaults recorded by a paper strategy constructor.
+        if not hasattr(self, "_default_domestic") or not hasattr(self, "_default_international"):
+            return allocation
+        available = set(available_assets)
+        explicit_assets = set()
+        if not self._default_domestic:
+            explicit_assets.add(self.dom_label)
+        if not self._default_international:
+            explicit_assets.update(self.intl_assets)
+        explicit_assets.add(self.bills_label)
+        if hasattr(self, "bond_label"):
+            explicit_assets.add(self.bond_label)
+
+        replacements = {}
+        if (
+            self._default_domestic and DOMESTIC_STOCK not in explicit_assets
+            and DOMESTIC_STOCK not in available and "USA" in available
+        ):
+            replacements[DOMESTIC_STOCK] = {"USA": 1.0}
+        if (
+            self._default_international and INTERNATIONAL_STOCK not in explicit_assets
+            and INTERNATIONAL_STOCK not in available
+            and self._country_international_assets.keys() <= available
+        ):
+            replacements[INTERNATIONAL_STOCK] = self._country_international_assets
+
+        # Keep the countries as holdings so monthly conversion and rebalancing
+        # operate on each constituent rather than an averaged annual return.
+        resolved = {}
+        for asset, weight in allocation.items():
+            for constituent, relative_weight in replacements.get(asset, {asset: 1.0}).items():
+                resolved[constituent] = resolved.get(constituent, 0.0) + weight * relative_weight
+        return resolved
+
+
+class PaperOptimalStrategy(_PaperStrategy):
     """
     The optimal age-based strategy recommended by the paper.
     - 100% Equity (33% Domestic, 67% Intl) for most of the lifecycle.
@@ -157,19 +207,19 @@ class PaperOptimalStrategy(Strategy):
     def __init__(
         self,
         retire_age: int = 65,
-        dom_label: str = "USA",
+        dom_label: str | None = None,
         intl_assets: Dict[str, float] | None = None,
-        bills_label: str = "Bills",
+        bills_label: str = BILLS,
     ):
         self.retire_age = retire_age
-        self.dom_label = dom_label
-        # Default to a broad international developed set if not provided
-        self.intl_assets = intl_assets or {
-            "GBR": 0.3,
-            "JPN": 0.3,
-            "FRA": 0.2,
-            "DEU": 0.2,
-        }
+        self._default_domestic = dom_label is None
+        self._default_international = intl_assets is None
+        self.dom_label = DOMESTIC_STOCK if dom_label is None else dom_label
+        self.intl_assets = (
+            {INTERNATIONAL_STOCK: 1.0}
+            if intl_assets is None
+            else dict(intl_assets)
+        )
         self.bills_label = bills_label
 
         # Validation for intl_assets
@@ -177,6 +227,7 @@ class PaperOptimalStrategy(Strategy):
             raise ValueError("International asset weights must sum to 1.0")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
+        bills_weight = 0.0
         # Before retirement or after age 70: standard 100% equity split (33/67)
         if age < self.retire_age or age >= 70:
             dom_weight = 0.33
@@ -193,17 +244,15 @@ class PaperOptimalStrategy(Strategy):
         # Map weights to actual assets
         allocation = {self.dom_label: dom_weight}
         for asset, rel_weight in self.intl_assets.items():
-            allocation[asset] = intl_weight * rel_weight
+            allocation[asset] = allocation.get(asset, 0.0) + intl_weight * rel_weight
 
         if age >= self.retire_age and age < 70:
-            allocation[self.bills_label] = 1.0 - sum(
-                v for k, v in allocation.items() if k != self.bills_label
-            )
+            allocation[self.bills_label] = allocation.get(self.bills_label, 0.0) + bills_weight
 
         return allocation
 
 
-class PaperTDFStrategy(Strategy):
+class PaperTDFStrategy(_PaperStrategy):
     """
     A representative Target Date Fund (TDF) glide path based on the paper.
     - Age 25: 54% Domestic, 36% Intl, 10% Bonds, 0% Bills.
@@ -214,20 +263,21 @@ class PaperTDFStrategy(Strategy):
         self,
         start_age: int = 25,
         retire_age: int = 65,
-        dom_label: str = "USA",
+        dom_label: str | None = None,
         intl_assets: Dict[str, float] | None = None,
-        bond_label: str = "Bonds",
-        bills_label: str = "Bills",
+        bond_label: str = BONDS,
+        bills_label: str = BILLS,
     ):
         self.start_age = start_age
         self.retire_age = retire_age
-        self.dom_label = dom_label
-        self.intl_assets = intl_assets or {
-            "GBR": 0.3,
-            "JPN": 0.3,
-            "FRA": 0.2,
-            "DEU": 0.2,
-        }
+        self._default_domestic = dom_label is None
+        self._default_international = intl_assets is None
+        self.dom_label = DOMESTIC_STOCK if dom_label is None else dom_label
+        self.intl_assets = (
+            {INTERNATIONAL_STOCK: 1.0}
+            if intl_assets is None
+            else dict(intl_assets)
+        )
         self.bond_label = bond_label
         self.bills_label = bills_label
 
@@ -248,13 +298,12 @@ class PaperTDFStrategy(Strategy):
         bonds_w = 0.10 + (0.73 - 0.10) * p
         bills_w = 0.00 + (0.10 - 0.00) * p
 
-        allocation = {
-            self.dom_label: dom_w,
-            self.bond_label: bonds_w,
-            self.bills_label: bills_w,
-        }
+        # Components can refer to the same holding; preserve each one's weight.
+        allocation = {self.dom_label: dom_w}
+        for asset, weight in [(self.bond_label, bonds_w), (self.bills_label, bills_w)]:
+            allocation[asset] = allocation.get(asset, 0.0) + weight
 
         for asset, rel_weight in self.intl_assets.items():
-            allocation[asset] = intl_w * rel_weight
+            allocation[asset] = allocation.get(asset, 0.0) + intl_w * rel_weight
 
         return allocation

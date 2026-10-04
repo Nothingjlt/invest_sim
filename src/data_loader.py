@@ -3,6 +3,8 @@ import pandas as pd
 import numpy as np
 from typing import Dict, Tuple, Optional, List
 
+from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
+
 class CountryMetadataRegistry:
     # ISO country codes mapped to (start_year, end_year) from the paper Table C.V
     COUNTRY_SAMPLE_PERIODS = {
@@ -275,10 +277,10 @@ class JSTDataLoader:
 
             processed_rows.append({
                 "Year": t,
-                "Domestic Stock": dom_stock,
-                "International Stock": intl_stock,
-                "Bonds": dom_bond,
-                "Bills": dom_bill,
+                DOMESTIC_STOCK: dom_stock,
+                INTERNATIONAL_STOCK: intl_stock,
+                BONDS: dom_bond,
+                BILLS: dom_bill,
                 "Inflation": cpi_ratio_p - 1,  # Annual inflation rate as a decimal
             })
 
