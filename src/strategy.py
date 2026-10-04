@@ -171,8 +171,10 @@ class _PaperStrategy(Strategy):
             explicit_assets.add(self.dom_label)
         if not self._default_international:
             explicit_assets.update(self.intl_assets)
-        explicit_assets.add(self.bills_label)
         if hasattr(self, "bond_label"):
+            # The TDF uses bonds and bills as active components. The fixed
+            # optimal strategy retains bills_label only for call compatibility.
+            explicit_assets.add(self.bills_label)
             explicit_assets.add(self.bond_label)
 
         replacements = {}
@@ -199,9 +201,15 @@ class _PaperStrategy(Strategy):
 
 class PaperOptimalStrategy(_PaperStrategy):
     """
-    The optimal age-based strategy recommended by the paper.
-    - 100% Equity (33% Domestic, 67% Intl) for most of the lifecycle.
-    - Tactical cash (Bills) allocation near retirement.
+    Fixed-weight all-equity approximation of the paper's optimal portfolio.
+
+    The paper reports 34% domestic stocks and 66% international stocks for its
+    optimal fixed-weight strategy, with no bonds or bills. Its separate optimal
+    age-based strategy varies by age across 13 allocation windows; reproducing
+    that schedule requires age-specific weights not represented by this class.
+
+    ``retire_age`` and ``bills_label`` remain accepted for call compatibility;
+    this strategy has no retirement-date cash transition.
     """
 
     def __init__(
@@ -227,34 +235,24 @@ class PaperOptimalStrategy(_PaperStrategy):
             raise ValueError("International asset weights must sum to 1.0")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
-        bills_weight = 0.0
-        # Before retirement or after age 70: standard 100% equity split (33/67)
-        if age < self.retire_age or age >= 70:
-            dom_weight = 0.33
-            intl_weight = 0.67
-        else:
-            # Transition at retirement (Age 65-70)
-            # Age 65: 26% Dom, 47% Intl, 27% Bills
-            # Age 70: 33% Dom, 67% Intl, 0% Bills
-            progress = (age - self.retire_age) / (70 - self.retire_age)
-            bills_weight = 0.27 * (1 - progress)
-            dom_weight = 0.26 + (0.33 - 0.26) * progress
-            intl_weight = 1.0 - bills_weight - dom_weight
-
-        # Map weights to actual assets
-        allocation = {self.dom_label: dom_weight}
+        # Table III reports the paper's optimal fixed-weight allocation as 34/66.
+        # Map that weight to the caller's selected international constituents.
+        allocation = {self.dom_label: 0.34}
         for asset, rel_weight in self.intl_assets.items():
-            allocation[asset] = allocation.get(asset, 0.0) + intl_weight * rel_weight
-
-        if age >= self.retire_age and age < 70:
-            allocation[self.bills_label] = allocation.get(self.bills_label, 0.0) + bills_weight
+            allocation[asset] = allocation.get(asset, 0.0) + 0.66 * rel_weight
 
         return allocation
 
 
 class PaperTDFStrategy(_PaperStrategy):
     """
-    A representative Target Date Fund (TDF) glide path based on the paper.
+    Linear approximation between the TDF allocation extremes reported in the paper.
+
+    Table III reports allocation ranges, while the age-specific path is shown in
+    Figure 1. This class does not reproduce that plotted curve; it interpolates
+    between the configured starting and retirement ages, then holds the terminal
+    allocation constant.
+
     - Age 25: 54% Domestic, 36% Intl, 10% Bonds, 0% Bills.
     - Age 65: 10% Domestic, 7% Intl, 73% Bonds, 10% Bills.
     """

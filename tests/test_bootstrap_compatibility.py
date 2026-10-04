@@ -114,16 +114,16 @@ def test_existing_aggregate_series_are_preserved(
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
 @pytest.mark.parametrize(
-    "strategy_type, accumulation_wealth, retirement_weights",
+    "strategy_type, accumulation_wealth, growth_weights",
     [
-        (PaperOptimalStrategy, 2153.10, (0.26, 0.47, 0.0, 0.27)),
+        (PaperOptimalStrategy, 2153.80, (0.34, 0.66, 0.0, 0.0)),
         (PaperTDFStrategy, 2107.55, (0.10, 0.07, 0.73, 0.10)),
     ],
 )
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
 def test_default_paper_strategies_grow_with_country_bootstrap_at_current_age(
     tmp_path, country_row, engine_type, strategy_type,
-    accumulation_wealth, retirement_weights, granularity
+    accumulation_wealth, growth_weights, granularity
 ):
     config = short_country_config(decumulation_granularity=granularity)
     strategy = strategy_type(retire_age=config.retirement_age)
@@ -137,11 +137,11 @@ def test_default_paper_strategies_grow_with_country_bootstrap_at_current_age(
     annual_returns = (0.20, 0.13, 0.04, -0.02)
     if granularity == "annual":
         retirement_growth = 1 + sum(
-            weight * ret for weight, ret in zip(retirement_weights, annual_returns)
+            weight * ret for weight, ret in zip(growth_weights, annual_returns)
         )
     else:
         country_returns = (0.20, 0.10, -0.20, 0.30, 0.50, 0.04, -0.02)
-        domestic, international, bonds, bills = retirement_weights
+        domestic, international, bonds, bills = growth_weights
         country_weights = (
             domestic, international * 0.3, international * 0.3,
             international * 0.2, international * 0.2, bonds, bills,
@@ -163,7 +163,7 @@ def test_default_paper_strategies_grow_with_country_bootstrap_at_current_age(
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
 @pytest.mark.parametrize(
     "strategy_type, expected_wealth",
-    [(PaperOptimalStrategy, 973.60), (PaperTDFStrategy, 1030.20)],
+    [(PaperOptimalStrategy, 968.00), (PaperTDFStrategy, 1030.20)],
 )
 def test_explicit_country_mapping_uses_its_own_domestic_and_international_returns(
     tmp_path, country_row, engine_type, strategy_type, expected_wealth

@@ -1,8 +1,8 @@
 # Lifecycle Investment Simulation Tool
 
-A Python-based simulation engine inspired by the research paper **"Beyond the Status Quo: A Critical Assessment of Lifecycle Investment Advice"** (Anarkulova, Cederburg, and O'Doherty, 2023). 
+A Python-based simulation engine inspired by **"Beyond the Status Quo: A Critical Assessment of Lifecycle Investment Advice"** by Anarkulova, Cederburg, and O'Doherty (reference version dated August 27, 2026).
 
-This tool allows investors to compare traditional "Glide Path" (Target Date Fund) strategies against the paper's recommendation of **100% Equities with Geographic Diversification** using both synthetic and historical market data.
+This tool allows investors to compare traditional "Glide Path" (Target Date Fund) strategies against the paper's all-equity strategies using both synthetic and historical market data.
 
 ## Features
 
@@ -12,8 +12,8 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
     - `FixedAllocationStrategy`: Constant asset mix.
     - `WorldEquityStrategy`: Hierarchical global allocation across regions and specific countries.
     - `GlidePathStrategy`: Traditional Target Date Fund (TDF) approach with granular asset support.
-    - `PaperOptimalStrategy`: The 100% Equity recommendation with tactical cash buffers from Anarkulova et al. (2023), now country-aware.
-    - `PaperTDFStrategy`: Representative industry glide path for direct research comparison.
+    - `PaperOptimalStrategy`: A country-aware fixed-weight approximation of the paper's 34% domestic / 66% international equity strategy. It does not implement the separate age-based optimizer's 13 allocation windows.
+    - `PaperTDFStrategy`: Linear approximation between the reported TDF allocation extremes; it does not reconstruct the age-specific curve in Figure 1.
     - `BalancedStrategy`: Traditional 60/40 stock-bond benchmark.
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).

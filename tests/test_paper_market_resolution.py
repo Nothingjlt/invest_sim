@@ -24,20 +24,20 @@ AGGREGATE_MAPPING = {
 # with growth factor 1. Annual growth precedes withdrawals; monthly withdrawals
 # precede separately compounded constituent growth and monthly rebalancing.
 NAN_COUNTRY_PATHS = {
-    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2193.3, 2359.77147, 2572.008649249, 2840.985625068],
-    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2193.3, 2329.822167282, 2505.266440816, 2728.657321248],
+    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2193.4, 2485.99956, 2831.239754904, 3239.182839902],
+    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2193.4, 2454.504370488, 2759.552170546, 3116.538292043],
     (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2063.4975, 2064.52924875, 2061.909122799, 2055.304754864],
     (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2063.4975, 2055.544392157, 2043.299873330, 2026.400076736],
 }
 NAN_COUNTRY_WITHDRAWALS = {
-    PaperOptimalStrategy: [0.0, 0.0, 0.0, 131.598, 135.54594, 139.6123182],
+    PaperOptimalStrategy: [0.0, 0.0, 0.0, 131.604, 135.55212, 139.6186836],
     PaperTDFStrategy: [0.0, 0.0, 0.0, 123.80985, 127.5241455, 131.349869865],
 }
 
 # Missing aggregates preserve both equity sleeves; Bonds and Bills still grow.
 NAN_AGGREGATE_PATHS = {
-    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2000.0, 1869.2, 1737.525056, 1604.587474819],
-    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2000.0, 1869.480573723, 1738.037216716, 1605.279472750],
+    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2000.0, 1880.0, 1756.4, 1629.092],
+    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2000.0, 1880.0, 1756.4, 1629.092],
     (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2026.62, 1960.146864, 1888.217742701, 1810.574795822],
     (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2026.62, 1957.946024587, 1883.717680770, 1803.674038931],
 }
@@ -49,20 +49,22 @@ NAN_AGGREGATE_WITHDRAWALS = {
 
 EXPLICIT_OVERLAP_CASES = [
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}},
-                 {"USA": 1.0}, {"USA": 0.73, "Bills": 0.27}, id="optimal-equities"),
+                 {"USA": 1.0}, {"USA": 1.0}, id="optimal-equities"),
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 0.25, "JPN": 0.75}},
-                 {"USA": 0.4975, "JPN": 0.5025}, {"USA": 0.3775, "JPN": 0.3525, "Bills": 0.27},
+                 {"USA": 0.505, "JPN": 0.495}, {"USA": 0.505, "JPN": 0.495},
                  id="optimal-partial-equities"),
     pytest.param(PaperOptimalStrategy, {"intl_assets": {DOMESTIC_STOCK: 1.0}},
-                 {DOMESTIC_STOCK: 1.0}, {DOMESTIC_STOCK: 0.73, "Bills": 0.27},
+                 {DOMESTIC_STOCK: 1.0}, {DOMESTIC_STOCK: 1.0},
                  id="optimal-default-domestic"),
     pytest.param(PaperOptimalStrategy, {"dom_label": INTERNATIONAL_STOCK},
-                 {INTERNATIONAL_STOCK: 1.0}, {INTERNATIONAL_STOCK: 0.73, "Bills": 0.27},
+                 {INTERNATIONAL_STOCK: 1.0}, {INTERNATIONAL_STOCK: 1.0},
                  id="optimal-default-international"),
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "USA"},
-                 {"USA": 0.33, "JPN": 0.67}, {"USA": 0.53, "JPN": 0.47}, id="optimal-bills-domestic"),
+                 {"USA": 0.34, "JPN": 0.66}, {"USA": 0.34, "JPN": 0.66},
+                 id="optimal-unused-bills-label-domestic"),
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"JPN": 1.0}, "bills_label": "JPN"},
-                 {"USA": 0.33, "JPN": 0.67}, {"USA": 0.26, "JPN": 0.74}, id="optimal-bills-international"),
+                 {"USA": 0.34, "JPN": 0.66}, {"USA": 0.34, "JPN": 0.66},
+                 id="optimal-unused-bills-label-international"),
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}, "bills_label": "USA"},
                  {"USA": 1.0}, {"USA": 1.0}, id="optimal-all-components"),
     pytest.param(PaperTDFStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}},
@@ -159,6 +161,32 @@ def test_default_country_basket_matches_explicit_constituents_across_retirement(
     )
     assert_same_result(actual, expected)
     assert all(value > 0 for value in actual.withdrawal_paths[0][3:])
+
+
+@pytest.mark.parametrize("bills_label", [
+    DOMESTIC_STOCK, INTERNATIONAL_STOCK, "USA", "JPN",
+])
+@pytest.mark.parametrize("granularity", ["annual", "monthly"])
+def test_optimal_ignored_bills_label_does_not_change_country_resolution(
+    tmp_path, country_returns, bills_label, granularity
+):
+    config = lifecycle_config(country_returns, "block", granularity)
+    actual = simulate(
+        tmp_path,
+        country_returns,
+        "block",
+        config,
+        PaperOptimalStrategy(bills_label=bills_label),
+    )
+    expected = simulate(
+        tmp_path,
+        country_returns,
+        "block",
+        config,
+        PaperOptimalStrategy(**COUNTRY_MAPPING),
+    )
+
+    assert_same_result(actual, expected)
 
 
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)

@@ -7,7 +7,12 @@ from src.config import MarketConfig, SimulationConfig
 from src.investor import Investor
 from src.market import Market
 from src.simulator import Simulator
-from src.strategy import FixedAllocationStrategy, PaperOptimalStrategy, PaperTDFStrategy
+from src.strategy import (
+    FixedAllocationStrategy,
+    PaperOptimalStrategy,
+    PaperTDFStrategy,
+    Strategy,
+)
 
 
 class ConstantMarket(Market):
@@ -55,17 +60,24 @@ def test_unknown_allocation_fails_before_first_contribution(granularity):
 
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
 def test_assets_introduced_at_retirement_are_validated(granularity):
+    class MissingAtRetirementStrategy(Strategy):
+        def _get_allocation(self, age):
+            if age < 26:
+                return {DOMESTIC_STOCK: 1.0}
+            return {"Missing Retirement Asset": 1.0}
+
     config = short_config(
         retirement_age=26,
         end_age=27,
         decumulation_granularity=granularity,
         markets=[
-            MarketConfig(DOMESTIC_STOCK, 0, 0, 0.33),
-            MarketConfig(INTERNATIONAL_STOCK, 0, 0, 0.67),
+            MarketConfig(DOMESTIC_STOCK, 0, 0, 0.34),
+            MarketConfig(INTERNATIONAL_STOCK, 0, 0, 0.66),
         ],
     )
-    with pytest.raises(ValueError, match="PaperOptimalStrategy at age 26:.*Bills"):
-        Simulator(config).run_stochastic(PaperOptimalStrategy(retire_age=26), num_trials=1)
+    message = "MissingAtRetirementStrategy at age 26:.*Missing Retirement Asset"
+    with pytest.raises(ValueError, match=message):
+        Simulator(config).run_stochastic(MissingAtRetirementStrategy(), num_trials=1)
 
 
 def test_zero_weight_names_do_not_require_return_series():

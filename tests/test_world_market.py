@@ -41,22 +41,22 @@ def test_world_equity_strategy_duplicate_collision():
         WorldEquityStrategy(region_weights)
 
 
-def test_paper_optimal_world_aware():
-    """Verify PaperOptimalStrategy works with specific country mappings."""
+def test_paper_optimal_fixed_weight_world_aware():
+    """Verify the 34/66 paper fixed-weight policy maps to country constituents."""
     # Custom mapping: Domestic is UK, International is USA/JPN
     intl_assets = {"USA": 0.5, "JPN": 0.5}
     strategy = PaperOptimalStrategy(dom_label="GBR", intl_assets=intl_assets)
 
-    # Pre-retirement (1/3 Domestic, 2/3 International)
+    # 34% domestic and 66% split evenly across the two international countries.
     alloc_young = strategy.get_allocation(30)
-    assert alloc_young["GBR"] == pytest.approx(0.33)
-    assert alloc_young["USA"] == pytest.approx(0.67 * 0.5)
-    assert alloc_young["JPN"] == pytest.approx(0.67 * 0.5)
+    assert alloc_young["GBR"] == pytest.approx(0.34)
+    assert alloc_young["USA"] == pytest.approx(0.66 * 0.5)
+    assert alloc_young["JPN"] == pytest.approx(0.66 * 0.5)
 
-    # Retirement Age 65 (Tactical Shift)
+    # The fixed-weight policy remains all-equity at retirement.
     alloc_65 = strategy.get_allocation(65)
-    assert alloc_65["Bills"] == pytest.approx(0.27)
-    assert alloc_65["GBR"] == pytest.approx(0.26)
+    assert alloc_65 == pytest.approx(alloc_young)
+    assert "Bills" not in alloc_65
 
 
 def test_simulation_with_world_market():
