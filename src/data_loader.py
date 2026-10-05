@@ -67,45 +67,9 @@ class JSTDataLoader:
     def __init__(self, csv_path: str):
         self.csv_path = csv_path
         if not os.path.exists(csv_path):
-            if "jst_dataset.csv" in csv_path:
-                self._generate_dummy_jst_file(csv_path)
-            else:
-                raise FileNotFoundError(f"JST dataset CSV not found at {csv_path}")
+            raise FileNotFoundError(f"JST dataset CSV not found at {csv_path}")
         self.raw_data = pd.read_csv(csv_path)
         self._normalize_columns()
-
-    def _generate_dummy_jst_file(self, path: str):
-        """Generates a mock raw JST dataset to allow immediate simulation run."""
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        countries_iso = ["USA", "GBR", "FRA", "DEU", "JPN", "CAN", "AUS", "ITA", "NLD", "BEL", "ESP", "SWE", "CHE", "DNK", "NOR", "FIN", "PRT", "IRL"]
-        rows = []
-        np.random.seed(42)
-        for country in countries_iso:
-            cpi = 1.0
-            exrat = 1.0 if country == "USA" else np.random.uniform(0.5, 2.0)
-            gdp = 1000.0
-            for year in range(1890, 2024):
-                cpi *= np.random.normal(1.025, 0.01)  # 2.5% inflation
-                exrat *= np.random.normal(1.0, 0.02)  # random walk exchange rate
-                if country == "USA":
-                    exrat = 1.0
-                gdp *= np.random.normal(1.03, 0.02)  # growth
-                eq_tr = np.random.normal(0.07, 0.17)
-                bond_tr = np.random.normal(0.03, 0.08)
-                bill_rate = np.random.normal(0.025, 0.03)
-                rows.append({
-                    "year": year,
-                    "country": country,
-                    "iso": country,
-                    "cpi": cpi,
-                    "exrat": exrat,
-                    "eq_tr": eq_tr,
-                    "bond_tr": bond_tr,
-                    "bill_rate": bill_rate,
-                    "gdp": gdp
-                })
-        df = pd.DataFrame(rows)
-        df.to_csv(path, index=False)
 
 
     def _normalize_columns(self):

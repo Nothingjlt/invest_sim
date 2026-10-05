@@ -113,6 +113,15 @@ def test_invalid_salary_growth_is_atomic(rate):
     assert investor.current_salary == 100
 
 
+@pytest.mark.parametrize("bad_return", [float("nan"), float("inf"), -float("inf"), -1.1])
+def test_invalid_returns_are_rejected_atomically(bad_return):
+    investor = Investor(25, 0, {"A": 100.0, "B": 200.0})
+    before = dict(investor.holdings)
+    with pytest.raises(ValueError):
+        investor.apply_returns({"A": 0.1, "B": bad_return})
+    assert investor.holdings == before
+
+
 def test_contribution_overflow_does_not_partially_mutate_holdings():
     investor = Investor(25, 1e308, {"A": 1e308, "B": 0})
     with pytest.raises(ValueError, match="finite"):

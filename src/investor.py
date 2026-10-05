@@ -74,16 +74,24 @@ class Investor:
         return amount
 
     def apply_returns(self, returns: Dict[str, float]):
-        """Applies annual returns to each asset class."""
+        """Apply valid simple returns atomically to held assets."""
+        self._validate_holdings()
         require_return_series(
             (asset for asset, value in self.holdings.items() if value != 0.0),
             returns,
             context=f"Investor at age {self.age}",
         )
+        holdings = dict(self.holdings)
         for asset, ret in returns.items():
             if asset in self.holdings:
-                if ret == ret and ret is not None:
-                    self.holdings[asset] *= 1 + ret
+                ret = finite_number(ret, context=f"Return for {asset}")
+                if ret < -1:
+                    raise ValueError(f"Return for {asset} must be at least -1.")
+                holdings[asset] = finite_number(
+                    holdings[asset] * (1 + ret), context=f"Holding for {asset}"
+                )
+        finite_number(sum(holdings.values()), context="Portfolio total")
+        self.holdings = holdings
 
     def rebalance(self, target_allocation: Dict[str, float]):
         """Redistributes total wealth according to target weights."""

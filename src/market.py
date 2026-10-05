@@ -103,6 +103,30 @@ class BootstrapMarket(Market):
         self.current_index = random.randint(0, len(self.data) - 1)
         self.remaining_in_block = self.block_size
 
+    def _observed_returns(self, row: pd.Series) -> Dict[str, float]:
+        """Keep observed series without discarding a partially covered year.
+
+        An absent key lets active-asset validation reject unavailable holdings;
+        a NaN value would incorrectly present the series as available. Other
+        non-finite or non-numeric values are invalid input and fail closed.
+        """
+        returns = {}
+        for col, value in row.items():
+            if col == "Year" or pd.isna(value):
+                continue
+            try:
+                value = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"Bootstrap return for {col} must be numeric and finite."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Bootstrap return for {col} must be numeric and finite."
+                )
+            returns[col] = value
+        return returns
+
     def get_annual_returns(self) -> Dict[str, float]:
         """Returns the next year of data from the current block."""
         if self.remaining_in_block <= 0:
@@ -114,8 +138,7 @@ class BootstrapMarket(Market):
         idx = self.current_index % len(self.data)
         row = self.data.iloc[idx]
 
-        # Prepare returns dict (excluding the 'Year' column)
-        returns = {col: row[col] for col in self.data.columns if col != "Year"}
+        returns = self._observed_returns(row)
 
         # Advance state
         self.current_index += 1
@@ -154,8 +177,7 @@ class StationaryBootstrapMarket(BootstrapMarket):
                 self.current_index = (self.current_index + 1) % len(self.data)
 
         row = self.data.iloc[self.current_index]
-        returns = {col: row[col] for col in self.data.columns if col != "Year"}
-        return returns
+        return self._observed_returns(row)
 
 
 class PerspectiveBootstrapMarket(BootstrapMarket):
@@ -210,7 +232,6 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
                     self.current_index = (self.current_index + 1) % len(self.data)
 
             row = self.data.iloc[self.current_index]
-            returns = {col: row[col] for col in self.data.columns if col != "Year"}
-            return returns
+            return self._observed_returns(row)
         else:
             return super().get_annual_returns()

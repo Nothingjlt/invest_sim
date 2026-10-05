@@ -7,19 +7,24 @@ from src.metrics import Metrics
 
 
 def test_world_market_data_loading():
-    """Verify that BootstrapMarket can load the 60+ country indices."""
+    """Load the wide panel, exposing only the sampled year's observations."""
     csv_path = "data/global_historical_returns.csv"
     market = BootstrapMarket(csv_path)
+    market.current_index = 0
+    market.remaining_in_block = 1
     returns = market.get_annual_returns()
 
     # Check for presence of key countries
     assert "USA" in returns
     assert "GBR" in returns
-    assert "CHN" in returns
-    assert "BRA" in returns
+    assert "CHN" in market.data.columns
+    assert "BRA" in market.data.columns
+    assert "CHN" not in returns
+    assert "BRA" not in returns
     assert "Bonds" in returns
     assert "Bills" in returns
-    assert len(returns) >= 60
+    assert len(market.data.columns) >= 60
+    assert returns == market.data.iloc[0].drop(labels="Year").dropna().to_dict()
 
 
 def test_world_equity_strategy_allocation():
@@ -64,9 +69,9 @@ def test_simulation_with_world_market():
     world_markets = SimulationConfig.get_world_market_configs()
     config = SimulationConfig(starting_age=25, retirement_age=65, markets=world_markets)
 
-    # Define a simple World Strategy: 50% USA, 25% GBR, 25% CHN
+    # Use countries covered throughout the bundled panel.
     strategy = WorldEquityStrategy(
-        {"Dev": {"USA": 0.5, "GBR": 0.25}, "EM": {"CHN": 0.25}}
+        {"Dev": {"USA": 0.5, "GBR": 0.25, "FRA": 0.25}}
     )
 
     sim = Simulator(config)
@@ -92,7 +97,7 @@ def test_diversification_safety_comparison():
     # Portfolio A: 100% USA
     strategy_a = WorldEquityStrategy({"USA": {"USA": 1.0}})
     # Portfolio B: 1/3 across 3 countries (Diversified)
-    strategy_b = WorldEquityStrategy({"Dev": {"USA": 0.34, "GBR": 0.33, "JPN": 0.33}})
+    strategy_b = WorldEquityStrategy({"Dev": {"USA": 0.34, "GBR": 0.33, "FRA": 0.33}})
 
     results_a = sim.run_stochastic(strategy_a, num_trials=100, market_engine=market)
     results_b = sim.run_stochastic(strategy_b, num_trials=100, market_engine=market)
