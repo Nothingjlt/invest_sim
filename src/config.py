@@ -1,7 +1,10 @@
 from dataclasses import dataclass, field
 from typing import List, Dict, Optional
 
-from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
+from src.assets import (
+    DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS,
+    finite_number, validate_allocation,
+)
 
 
 @dataclass
@@ -96,21 +99,58 @@ class SimulationConfig:
 
     def validate(self):
         """Basic validation to ensure parameters are logically consistent."""
+        for name in ("starting_age", "retirement_age", "end_age"):
+            age = getattr(self, name)
+            if isinstance(age, bool) or not isinstance(age, int) or age <= 0:
+                raise ValueError(f"{name} must be a positive integer.")
         if self.starting_age >= self.retirement_age:
             raise ValueError("Starting age must be before retirement age.")
         if self.retirement_age >= self.end_age:
             raise ValueError("Retirement age must be before end age.")
-        if sum(m.weight for m in self.markets) != 1.0:
-            raise ValueError("Total market weights must sum to 1.0.")
-
+        if not isinstance(self.markets, (list, tuple)) or not self.markets:
+            raise ValueError("markets must contain at least one MarketConfig.")
+        for market in self.markets:
+            if not isinstance(market, MarketConfig):
+                raise ValueError("markets must contain MarketConfig entries.")
+            if not isinstance(market.name, str) or not market.name.strip():
+                raise ValueError("Market asset names must be nonempty strings.")
         # Check for Market Classification Collisions
         # Ensure no country is treated as both Developed and Emerging in the same context
         asset_names = [m.name for m in self.markets]
         if len(asset_names) != len(set(asset_names)):
             raise ValueError("Duplicate asset names detected in market configuration.")
+        validate_allocation(
+            {m.name: m.weight for m in self.markets}, context="Total market"
+        )
+        for market in self.markets:
+            expected_return = finite_number(market.expected_return, context="expected_return")
+            if expected_return <= -1:
+                raise ValueError("expected_return must be greater than -1.")
+            if finite_number(market.volatility, context="volatility") < 0:
+                raise ValueError("volatility must be nonnegative.")
+
+        for name in ("initial_salary", "social_security_benefit", "withdrawal_cap", "withdrawal_floor"):
+            value = getattr(self, name)
+            if value is None and name in {"withdrawal_cap", "withdrawal_floor"}:
+                continue
+            if finite_number(value, context=name) < 0:
+                raise ValueError(f"{name} must be nonnegative.")
+        for name in ("savings_rate", "withdrawal_rate"):
+            if not 0 <= finite_number(getattr(self, name), context=name) <= 1:
+                raise ValueError(f"{name} must be between 0 and 1.")
+        if finite_number(self.salary_growth_rate, context="salary_growth_rate") < -1:
+            raise ValueError("salary_growth_rate must be at least -1.")
+        if not isinstance(self.withdrawal_strategy, str) or self.withdrawal_strategy not in {"variable_pct", "fixed_real"}:
+            raise ValueError("withdrawal_strategy must be 'variable_pct' or 'fixed_real'.")
+        for name in (
+            "enable_mortality", "withdrawal_inflation_adjusted",
+            "withdrawal_cap_inflation_adjusted", "withdrawal_floor_inflation_adjusted",
+        ):
+            if not isinstance(getattr(self, name), bool):
+                raise ValueError(f"{name} must be a bool.")
 
         # Decumulation granularity
-        if self.decumulation_granularity not in {"annual", "monthly"}:
+        if not isinstance(self.decumulation_granularity, str) or self.decumulation_granularity not in {"annual", "monthly"}:
             raise ValueError(
                 f"decumulation_granularity must be 'annual' or 'monthly', "
                 f"got {self.decumulation_granularity!r}."
