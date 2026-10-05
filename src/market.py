@@ -4,10 +4,14 @@ import random
 import pandas as pd
 from typing import List, Dict
 from src.config import MarketConfig
+from src.provenance import DataProvenance, csv_provenance
 
 
 class Market(ABC):
     """Base class for market return generators."""
+
+    # Custom engines may override this with an explicit source declaration.
+    provenance = DataProvenance()
 
     @abstractmethod
     def get_annual_returns(self) -> Dict[str, float]:
@@ -16,6 +20,8 @@ class Market(ABC):
 
 class SyntheticMarket(Market):
     """Generates bounded simple returns with lognormal gross returns."""
+
+    provenance = DataProvenance("synthetic", "SyntheticMarket lognormal model")
 
     def __init__(self, market_configs: List[MarketConfig], seed: int | None = None):
         self.configs = market_configs
@@ -73,11 +79,16 @@ class SyntheticMarket(Market):
 
 class BootstrapMarket(Market):
     """
-    Generates returns by sampling from historical CSV data.
-    Uses 'Block Bootstrap' logic to preserve contiguous historical sequences.
+    Generates returns by sampling CSV data with contiguous blocks.
+    The source is unverified unless explicit provenance is provided or the
+    input matches the known bundled synthetic panel.
     """
 
-    def __init__(self, csv_path: str, block_size: int = 10, seed: int | None = None):
+    def __init__(
+        self, csv_path: str, block_size: int = 10, seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
+    ):
+        self.provenance = csv_provenance(csv_path, provenance)
         self.data = pd.read_csv(csv_path)
         self.block_size = block_size
         if seed is not None:
@@ -119,8 +130,11 @@ class StationaryBootstrapMarket(BootstrapMarket):
     Block lengths are geometrically distributed with expected value equal to block_size.
     """
 
-    def __init__(self, csv_path: str, block_size: int = 10, seed: int | None = None):
-        super().__init__(csv_path, block_size, seed)
+    def __init__(
+        self, csv_path: str, block_size: int = 10, seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
+    ):
+        super().__init__(csv_path, block_size, seed, provenance=provenance)
         self.first_step = True
 
     def start_new_path(self):
@@ -157,9 +171,11 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
         block_size: int = 10,
         stationary_bootstrap: bool = False,
         weight_method: str = "gdp",
-        seed: int | None = None
+        seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
     ):
         from src.data_loader import JSTDataLoader
+        self.provenance = csv_provenance(csv_path, provenance)
         loader = JSTDataLoader(csv_path)
         processed_data = loader.get_processed_returns(
             perspective_country=perspective_country,

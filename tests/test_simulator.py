@@ -117,7 +117,7 @@ def _minimal_config() -> SimulationConfig:
 
 
 def test_path_tracking_disabled_by_default():
-    """Without track_paths the return value is a plain list (backward compat)."""
+    """Without track_paths outcomes remain list-compatible and identify their source."""
     config = _minimal_config()
     sim = Simulator(config)
     strategy = FixedAllocationStrategy({"Stocks": 1.0})
@@ -126,6 +126,7 @@ def test_path_tracking_disabled_by_default():
     assert isinstance(result, list), "Default return type must be List[float]"
     assert len(result) == 3
     assert all(isinstance(v, float) for v in result)
+    assert result.provenance.kind == "synthetic"
 
 
 def test_path_tracking_shape_and_values():
@@ -138,6 +139,8 @@ def test_path_tracking_shape_and_values():
     result = sim.run_stochastic(strategy, num_trials=num_trials, track_paths=True)
 
     assert isinstance(result, SimulationResult)
+    assert result.provenance.kind == "synthetic"
+    assert result.terminal_wealths.provenance == result.provenance
     assert len(result.terminal_wealths) == num_trials
     assert len(result.paths) == num_trials
     assert len(result.withdrawal_paths) == num_trials
