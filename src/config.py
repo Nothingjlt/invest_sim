@@ -56,10 +56,10 @@ class SimulationConfig:
     decumulation_granularity: str = "annual"
     # Controls the time-step used during the retirement (decumulation) phase.
     # "annual"  – one withdrawal per year (default, backward-compatible).
-    # "monthly" – withdrawals at the beginning of each calendar month,
-    #              matching the timing semantics in Anarkulova et al. (2023).
-    #              Annual market returns are converted to monthly compounded
-    #              rates: r_m = (1 + R_annual)^(1/12) - 1.
+    # "monthly" – withdrawals at the beginning of each calendar month. If the
+    #              market supplies annual returns, each annual return is
+    #              smoothed into twelve equal compounded monthly returns:
+    #              r_m = (1 + R_annual)^(1/12) - 1.
 
     # Markets (Synthetic placeholders for now)
     # Allows 'choice of markets to invest' by defining asset classes here.
@@ -138,13 +138,13 @@ class SimulationConfig:
                 name=DOMESTIC_STOCK,
                 expected_return=0.05,
                 volatility=0.17,
-                weight=0.33,
+                weight=0.34,
             ),
             MarketConfig(
                 name=INTERNATIONAL_STOCK,
                 expected_return=0.07,
                 volatility=0.23,
-                weight=0.67,
+                weight=0.66,
             ),
             MarketConfig(
                 name=BONDS, expected_return=0.01, volatility=0.10, weight=0.0

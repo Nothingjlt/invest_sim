@@ -11,60 +11,58 @@ def test_balanced_strategy():
     assert alloc["Bonds"] == pytest.approx(0.40)
 
 
-def test_paper_optimal_strategy_lifecycle():
-    # Pass custom labels to match the test's expectations
+def test_paper_market_config_weights_match_fixed_weight_policy():
+    weights = {
+        market.name: market.weight
+        for market in SimulationConfig.get_paper_market_configs()
+    }
+    assert weights == pytest.approx({
+        "Domestic Stock": 0.34,
+        "International Stock": 0.66,
+        "Bonds": 0.0,
+        "Bills": 0.0,
+    })
+
+
+def test_paper_optimal_strategy_uses_paper_fixed_weight_all_equity_policy():
     intl_assets = {"International Stock": 1.0}
     strategy = PaperOptimalStrategy(
         retire_age=65, dom_label="Domestic Stock", intl_assets=intl_assets
     )
 
-    # Pre-retirement: 100% equity (33/67)
-    alloc_40 = strategy.get_allocation(40)
-    assert alloc_40["Domestic Stock"] == pytest.approx(0.33)
-    assert alloc_40["International Stock"] == pytest.approx(0.67)
-    assert alloc_40.get("Bills", 0) == 0
-
-    # At retirement (65): Tactical cash cushion
-    alloc_65 = strategy.get_allocation(65)
-    assert alloc_65["Domestic Stock"] == pytest.approx(0.26)
-    assert alloc_65["International Stock"] == pytest.approx(0.47)
-    assert alloc_65["Bills"] == pytest.approx(0.27)
-
-    # Mid-transition (67.5): Midway between 65 and 70
-    # Bills: 27 -> 0. Midpoint is 13.5
-    alloc_67_5 = strategy.get_allocation(
-        67.5
-    )  # Using float age for testing interpolation
-    assert alloc_67_5["Bills"] == pytest.approx(0.135)
-
-    # Post-transition (70+): Returns to 100% equity
-    alloc_75 = strategy.get_allocation(75)
-    assert alloc_75["Domestic Stock"] == pytest.approx(0.33)
-    assert alloc_75["International Stock"] == pytest.approx(0.67)
-    assert alloc_75.get("Bills", 0) == 0
+    # Table III's optimal fixed-weight policy is 34% domestic / 66% international.
+    for age in (25, 40, 65, 67.5, 90):
+        allocation = strategy.get_allocation(age)
+        assert allocation == pytest.approx({
+            "Domestic Stock": 0.34,
+            "International Stock": 0.66,
+        })
+        assert sum(allocation.values()) == pytest.approx(1.0)
+        assert "Bonds" not in allocation
+        assert "Bills" not in allocation
 
 
-def test_paper_tdf_strategy_lifecycle():
+def test_paper_tdf_linear_approximation_endpoints_and_midpoint():
     intl_assets = {"International Stock": 1.0}
     strategy = PaperTDFStrategy(
         start_age=25, retire_age=65, dom_label="Domestic Stock", intl_assets=intl_assets
     )
 
-    # Start (25): 54/36/10/0
+    # Approximation start: 54/36/10/0.
     alloc_25 = strategy.get_allocation(25)
     assert alloc_25["Domestic Stock"] == pytest.approx(0.54)
     assert alloc_25["International Stock"] == pytest.approx(0.36)
     assert alloc_25["Bonds"] == pytest.approx(0.10)
     assert alloc_25.get("Bills", 0) == 0
 
-    # End (65): 10/7/73/10
+    # Approximation endpoint: 10/7/73/10.
     alloc_65 = strategy.get_allocation(65)
     assert alloc_65["Domestic Stock"] == pytest.approx(0.10)
     assert alloc_65["International Stock"] == pytest.approx(0.07)
     assert alloc_65["Bonds"] == pytest.approx(0.73)
     assert alloc_65["Bills"] == pytest.approx(0.10)
 
-    # Midpoint (45): Midway between 25 and 65
+    # Midpoint (45): midpoint of this linear approximation, not a Figure 1 datum.
     alloc_45 = strategy.get_allocation(45)
     # Dom: 0.54 -> 0.10. Mid is 0.32
     # Intl: 0.36 -> 0.07. Mid is 0.215
@@ -82,13 +80,13 @@ def test_paper_optimal_strategy_stochastic_runs_deterministically():
             name="Domestic Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.33,
+            weight=0.34,
         ),
         MarketConfig(
             name="International Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.67,
+            weight=0.66,
         ),
         MarketConfig(
             name="Bills",
