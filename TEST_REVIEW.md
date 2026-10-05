@@ -15,18 +15,16 @@ The recent correction is supported by the paper. Section 4.1 describes 13 age wi
 
 The exact 13 age-window weights are not tabulated in the supplied text; Table III reports ranges. `PaperOptimalStrategy` should therefore not be presented as the age-based optimizer. The TDF section likewise points to a curve in Figure 1 while Table III provides ranges rather than point-by-point weights. The revised code and tests appropriately identify `PaperTDFStrategy` as a linear approximation rather than a reconstruction of that figure.
 
-### New compatibility regression
+### Compatibility regression found and fixed before merge
 
-The corrected optimal strategy no longer allocates to bills, but the shared market resolver still treats its compatibility-only `bills_label` as an explicitly requested asset at [src/strategy.py:174](src/strategy.py#L174). On country-only return series, the default strategy resolves successfully, while either of these fails because resolution of a default equity sleeve is suppressed:
-
-**Status on this PR branch:** fixed. The resolver now treats bills and bonds labels as active components only for the TDF strategy. Regression coverage checks that canonical aggregate names and country labels passed as the unused optimal bills label leave annual and monthly country-market results unchanged.
+The independent audit found that the shared market resolver treated `PaperOptimalStrategy`'s compatibility-only `bills_label` as an explicitly requested asset at [src/strategy.py:174](src/strategy.py#L174). With country-only return series, the default strategy resolved successfully, while either of these failed because resolution of a default equity sleeve was suppressed:
 
 ```python
 PaperOptimalStrategy(bills_label="Domestic Stock")
 PaperOptimalStrategy(bills_label="International Stock")
 ```
 
-The new overlap cases in [tests/test_paper_market_resolution.py:62](tests/test_paper_market_resolution.py#L62) test unused labels `USA` and `JPN`, but not the canonical aggregate asset names. Add cases proving that an unused optimal-strategy bills label cannot alter country resolution or simulation. Keep the TDF's bills-label behavior covered, because that strategy still allocates to bills.
+**Resolution on this PR branch:** the resolver now treats bills and bonds labels as active components only for the TDF strategy. The initial overlap cases covered unused labels `USA` and `JPN` but not the canonical aggregate names. The added [test_optimal_ignored_bills_label_does_not_change_country_resolution](tests/test_paper_market_resolution.py#L170) covers both canonical names and both country labels in annual and monthly simulations. The TDF's active bills-label behavior remains covered.
 
 ### Tests with weak or ineffective assertions
 
@@ -92,7 +90,7 @@ The adapter/resolution and bootstrap-compatibility suites contain 299 of 399 cas
 
 ## Suggested order of work
 
-1. Fix and test the `bills_label` country-resolution regression, then validate allocation finiteness/sign constraints and decide label-collision behavior.
+1. Keep the `bills_label` country-resolution regression covered; validate allocation finiteness/sign constraints and decide label-collision behavior.
 2. Strengthen the exact withdrawal, indexation, Social Security, and cap/floor tests so disabling the intended production behavior fails.
 3. Correct calibration and documentation claims; clearly label simplified behavior as an extension rather than paper reproduction.
 4. Add controlled multi-row bootstrap and market-weight fixtures, plus data eligibility and failure cases.
