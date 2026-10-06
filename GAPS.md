@@ -134,6 +134,27 @@ on empty panels (including an empty processed perspective panel), and reject
 returns below `-1` before sampling or simulation. Add focused tests for each
 failure mode and for both fixed and stationary engines.
 
+### Inconsistent monthly handling of invalid returns
+
+**Status:** Open
+
+Annual simulation rejects a simple return below `-1` through investor return
+validation, but monthly decumulation currently converts any annual return with
+`1 + R <= 0` into `-1` (a total loss) before applying it. Consequently, a
+custom market returning `-1.1` can fail in annual mode but silently complete as
+a total loss in monthly mode. This is an economically inconsistent treatment
+of malformed input.
+
+The same monthly path assumes the optional `Inflation` value is numeric when
+the key is present. `Inflation=None` is handled by the fallback, but other
+invalid values such as `NaN`, infinity, or non-numeric objects can reach
+arithmetic before the fallback or centralized validation.
+
+Validate every supplied market return and metadata value once, before either
+annual or monthly processing. Reject non-finite values and returns below `-1`,
+and define the accepted behavior for a missing or invalid `Inflation` field.
+Add parity tests showing that annual and monthly modes fail consistently.
+
 ### Pre-existing world-market configuration gap
 
 **Status:** Open; pre-existing on `master`, not introduced by this PR
@@ -158,6 +179,29 @@ The open gaps above should be covered by:
   boundaries and continuation behavior;
 - lagged market-cap weighting and disjoint country-eligibility fixtures;
 - invalid block sizes, empty panels, and returns below `-1`;
+- invalid monthly returns and `Inflation` values, with annual/monthly parity;
 - a factory-contract test for `get_world_market_configs()`; and
 - a lightweight documentation/review check that paper-compatibility claims
   continue to link to this file.
+
+### Weak or non-discriminating existing tests
+
+**Status:** Open
+
+Several existing tests can pass without proving the behavior their names or
+comments suggest:
+
+- `test_withdrawal_cap_inflation_adjusts` checks that the second withdrawal is
+  monotonic and below a bound, but does not assert the exact inflation-adjusted
+  cap or withdrawal amount;
+- the monthly Social Security test uses a benefit deliberately multiplied by
+  12, so it does not cover ordinary annual-benefit coverage or partial
+  portfolio funding; and
+- `test_diversification_safety_comparison` computes two tail metrics but only
+  asserts that both are non-negative, so it does not test the claimed
+  diversification comparison.
+
+Strengthen these tests with exact expected values and scenarios that can fail
+  when the relevant behavior regresses. For the diversification test, either
+  assert a deterministic property using a controlled fixture or rename it as a
+  smoke test and add a separate comparative test with a justified invariant.
