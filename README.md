@@ -18,8 +18,8 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
 - **Advanced Market Engines**:
     - `SyntheticMarket`: Normal distribution modeling (Mean/Volatility).
     - `BootstrapMarket`: **Dynamic Block Bootstrap** sampling that detects country columns automatically from CSV data, with explicit data-source provenance.
-    - `StationaryBootstrapMarket`: Geometrically distributed block sizes following Politis & Romano (1994), matching the paper's bootstrap design.
-    - `PerspectiveBootstrapMarket`: Country-aware bootstrap engine that processes raw historical panel data (like JST) into perspective-adjusted real returns (FX-converted, deflated by local inflation, and GDP-weighted for international markets).
+    - `StationaryBootstrapMarket`: Geometrically distributed block sizes following Politis & Romano (1994), inspired by—but not a full reproduction of—the paper's bootstrap design; see [GAPS.md](GAPS.md).
+    - `PerspectiveBootstrapMarket`: Country-aware bootstrap engine that processes raw historical panel data (like JST) into perspective-adjusted real returns (FX-converted, deflated by local inflation, and GDP-weighted as a proxy for international markets); see [GAPS.md](GAPS.md) for known paper-fidelity gaps.
 - **Longevity & Social Security**:
     - **Mortality Engine**: Simplified Gompertz mortality model for stochastic lifespans.
     - **Social Security**: Integrated as a consumption floor to model non-portfolio income.
