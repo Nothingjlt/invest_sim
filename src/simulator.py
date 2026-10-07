@@ -1,10 +1,42 @@
 import random
-from typing import Dict, List, NamedTuple, Optional, Union
+from typing import Dict, Iterable, List, NamedTuple, Optional, Union
 from src.assets import require_return_series
 from src.config import SimulationConfig
 from src.investor import Investor
 from src.market import Market, SyntheticMarket, BootstrapMarket
+from src.provenance import DataProvenance
 from src.strategy import Strategy, FixedAllocationStrategy
+
+
+class TerminalWealths(list):
+    """List-compatible outcomes with explicit data provenance.
+
+    Iteration, indexing, equality, and existing metrics behave as for a list.
+    Use to_dict() when exporting results: plain list/JSON conversion discards
+    attached metadata, as it does for any list subclass.
+    """
+
+    def __init__(
+        self, values: Iterable[float] = (), *,
+        provenance: DataProvenance = DataProvenance(),
+    ):
+        if not isinstance(provenance, DataProvenance):
+            raise TypeError("provenance must be a DataProvenance instance.")
+        super().__init__(values)
+        self._provenance = provenance
+
+    @property
+    def provenance(self) -> DataProvenance:
+        return self._provenance
+
+    def __repr__(self) -> str:
+        return f"TerminalWealths({super().__repr__()}, provenance={self.provenance!r})"
+
+    def to_dict(self) -> dict:
+        return {
+            "terminal_wealths": list(self),
+            "provenance": self.provenance.to_dict(),
+        }
 
 
 class SimulationResult(NamedTuple):
@@ -18,11 +50,27 @@ class SimulationResult(NamedTuple):
             len(paths[i]) == trial_end_age - starting_age + 1.
         withdrawal_paths: Year-by-year actual withdrawal amount from the portfolio
             per trial. Aligned with paths, starting with 0.0 at starting_age.
+        provenance: Source metadata shared with terminal_wealths. Exposed as a
+            property to preserve the existing three-field tuple/unpacking API.
     """
 
     terminal_wealths: List[float]
     paths: List[List[float]]
     withdrawal_paths: List[List[float]]
+
+    @property
+    def provenance(self) -> DataProvenance:
+        # Keep manually constructed legacy results usable and honestly labeled.
+        return getattr(self.terminal_wealths, "provenance", DataProvenance())
+
+    def to_dict(self) -> dict:
+        """Export outcomes, paths, and source metadata together."""
+        return {
+            "terminal_wealths": list(self.terminal_wealths),
+            "paths": self.paths,
+            "withdrawal_paths": self.withdrawal_paths,
+            "provenance": self.provenance.to_dict(),
+        }
 
 
 class Simulator:
@@ -256,7 +304,7 @@ class Simulator:
         num_trials: int = 1000,
         market_engine: Market | None = None,
         track_paths: bool = False,
-    ) -> Union[List[float], SimulationResult]:
+    ) -> Union[TerminalWealths, SimulationResult]:
         """
         Runs multiple lifecycle simulations with strategy-based rebalancing.
         If market_engine is not provided, defaults to SyntheticMarket using config.
@@ -264,8 +312,9 @@ class Simulator:
         When track_paths=True, returns a SimulationResult(terminal_wealths, paths, withdrawal_paths)
         named-tuple. Each entry in ``paths`` is the year-by-year total portfolio
         value for one trial (starting snapshot + one value per simulated year).
-        When track_paths=False (default), returns a plain List[float] of terminal
-        wealth values for backward compatibility.
+        When track_paths=False (default), returns TerminalWealths, a list subclass
+        of terminal wealth values for backward compatibility. Both return forms
+        expose immutable ``provenance`` metadata and ``to_dict()`` for export.
 
         The ``config.decumulation_granularity`` field controls the decumulation
         time-step used during the retirement phase:
@@ -279,14 +328,19 @@ class Simulator:
             getattr(self.config, "decumulation_granularity", "annual") == "monthly"
         )
 
-        terminal_wealths: List[float] = []
+        provenance = (
+            SyntheticMarket.provenance if market_engine is None
+            else getattr(market_engine, "provenance", DataProvenance())
+        )
+        terminal_wealths = TerminalWealths(provenance=provenance)
         paths: List[List[float]] = []
         withdrawal_paths: List[List[float]] = []
 
         for _ in range(num_trials):
             # Use provided engine or default to Synthetic
             market = (
-                market_engine if market_engine else SyntheticMarket(self.config.markets)
+                market_engine if market_engine is not None
+                else SyntheticMarket(self.config.markets)
             )
 
             # If bootstrap, start a new path

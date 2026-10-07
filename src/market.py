@@ -4,10 +4,14 @@ import random
 import pandas as pd
 from typing import List, Dict
 from src.config import MarketConfig
+from src.provenance import DataProvenance, csv_provenance
 
 
 class Market(ABC):
     """Base class for market return generators."""
+
+    # Custom engines may override this with an explicit source declaration.
+    provenance = DataProvenance()
 
     @abstractmethod
     def get_annual_returns(self) -> Dict[str, float]:
@@ -16,6 +20,8 @@ class Market(ABC):
 
 class SyntheticMarket(Market):
     """Generates bounded simple returns with lognormal gross returns."""
+
+    provenance = DataProvenance("synthetic", "SyntheticMarket lognormal model")
 
     def __init__(self, market_configs: List[MarketConfig], seed: int | None = None):
         self.configs = market_configs
@@ -73,11 +79,16 @@ class SyntheticMarket(Market):
 
 class BootstrapMarket(Market):
     """
-    Generates returns by sampling from historical CSV data.
-    Uses 'Block Bootstrap' logic to preserve contiguous historical sequences.
+    Generates returns by sampling CSV data with contiguous blocks.
+    The source is unverified unless explicit provenance is provided or the
+    input matches the known bundled synthetic panel.
     """
 
-    def __init__(self, csv_path: str, block_size: int = 10, seed: int | None = None):
+    def __init__(
+        self, csv_path: str, block_size: int = 10, seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
+    ):
+        self.provenance = csv_provenance(csv_path, provenance)
         self.data = pd.read_csv(csv_path)
         self.block_size = block_size
         if seed is not None:
@@ -92,6 +103,30 @@ class BootstrapMarket(Market):
         self.current_index = random.randint(0, len(self.data) - 1)
         self.remaining_in_block = self.block_size
 
+    def _observed_returns(self, row: pd.Series) -> Dict[str, float]:
+        """Keep observed series without discarding a partially covered year.
+
+        An absent key lets active-asset validation reject unavailable holdings;
+        a NaN value would incorrectly present the series as available. Other
+        non-finite or non-numeric values are invalid input and fail closed.
+        """
+        returns = {}
+        for col, value in row.items():
+            if col == "Year" or pd.isna(value):
+                continue
+            try:
+                value = float(value)
+            except (TypeError, ValueError, OverflowError) as exc:
+                raise ValueError(
+                    f"Bootstrap return for {col} must be numeric and finite."
+                ) from exc
+            if not math.isfinite(value):
+                raise ValueError(
+                    f"Bootstrap return for {col} must be numeric and finite."
+                )
+            returns[col] = value
+        return returns
+
     def get_annual_returns(self) -> Dict[str, float]:
         """Returns the next year of data from the current block."""
         if self.remaining_in_block <= 0:
@@ -103,8 +138,7 @@ class BootstrapMarket(Market):
         idx = self.current_index % len(self.data)
         row = self.data.iloc[idx]
 
-        # Prepare returns dict (excluding the 'Year' column)
-        returns = {col: row[col] for col in self.data.columns if col != "Year"}
+        returns = self._observed_returns(row)
 
         # Advance state
         self.current_index += 1
@@ -119,8 +153,11 @@ class StationaryBootstrapMarket(BootstrapMarket):
     Block lengths are geometrically distributed with expected value equal to block_size.
     """
 
-    def __init__(self, csv_path: str, block_size: int = 10, seed: int | None = None):
-        super().__init__(csv_path, block_size, seed)
+    def __init__(
+        self, csv_path: str, block_size: int = 10, seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
+    ):
+        super().__init__(csv_path, block_size, seed, provenance=provenance)
         self.first_step = True
 
     def start_new_path(self):
@@ -140,8 +177,7 @@ class StationaryBootstrapMarket(BootstrapMarket):
                 self.current_index = (self.current_index + 1) % len(self.data)
 
         row = self.data.iloc[self.current_index]
-        returns = {col: row[col] for col in self.data.columns if col != "Year"}
-        return returns
+        return self._observed_returns(row)
 
 
 class PerspectiveBootstrapMarket(BootstrapMarket):
@@ -157,9 +193,11 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
         block_size: int = 10,
         stationary_bootstrap: bool = False,
         weight_method: str = "gdp",
-        seed: int | None = None
+        seed: int | None = None,
+        *, provenance: DataProvenance | None = None,
     ):
         from src.data_loader import JSTDataLoader
+        self.provenance = csv_provenance(csv_path, provenance)
         loader = JSTDataLoader(csv_path)
         processed_data = loader.get_processed_returns(
             perspective_country=perspective_country,
@@ -194,7 +232,6 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
                     self.current_index = (self.current_index + 1) % len(self.data)
 
             row = self.data.iloc[self.current_index]
-            returns = {col: row[col] for col in self.data.columns if col != "Year"}
-            return returns
+            return self._observed_returns(row)
         else:
             return super().get_annual_returns()

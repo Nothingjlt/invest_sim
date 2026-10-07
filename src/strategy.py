@@ -1,18 +1,34 @@
 from abc import ABC, abstractmethod
-from typing import Dict, Iterable
+from typing import Dict, Iterable, Mapping
 from functools import wraps
 
-from src.assets import DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS
+from src.assets import (
+    DOMESTIC_STOCK, INTERNATIONAL_STOCK, BONDS, BILLS,
+    finite_number, validate_allocation,
+)
+
+
+def _validate_timeline(start_age, retire_age):
+    for name, age in [("start_age", start_age), ("retire_age", retire_age)]:
+        if finite_number(age, context=name) <= 0:
+            raise ValueError(f"{name} must be positive.")
+    if start_age >= retire_age:
+        raise ValueError("start_age must be before retire_age.")
 
 
 class Strategy(ABC):
-    """Abstract base class for investment strategies."""
+    """Abstract base class for investment strategies.
+
+    Composite strategies add component weights when holding labels overlap.
+    WorldEquityStrategy rejects countries repeated across regions, since region
+    entries are absolute holdings rather than separate portfolio components.
+    """
 
     @staticmethod
     def _validate_age(func):
         @wraps(func)
         def wrapper(self, age: float, *args, **kwargs):
-            if age <= 0:
+            if finite_number(age, context="Age") <= 0:
                 raise ValueError("Age must be positive.")
             return func(self, age, *args, **kwargs)
         return wrapper
@@ -20,13 +36,13 @@ class Strategy(ABC):
     @_validate_age
     def get_allocation(self, age: float) -> Dict[str, float]:
         """Returns the target portfolio allocation for a given age."""
-        return self._get_allocation(age)
+        return validate_allocation(self._get_allocation(age))
 
     def resolve_allocation_for_market(
         self, allocation: Dict[str, float], available_assets: Iterable[str]
     ) -> Dict[str, float]:
         """Resolve an allocation against the current market's return series."""
-        return allocation
+        return validate_allocation(allocation)
 
     @abstractmethod
     def _get_allocation(self, age: float) -> Dict[str, float]:
@@ -38,7 +54,7 @@ class FixedAllocationStrategy(Strategy):
     """A strategy where the allocation remains constant (e.g., 100% Equity)."""
 
     def __init__(self, target_allocation: Dict[str, float]):
-        self.target_allocation = target_allocation
+        self.target_allocation = validate_allocation(target_allocation)
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
         return self.target_allocation
@@ -55,30 +71,24 @@ class WorldEquityStrategy(Strategy):
         self._validate_weights()
 
     def _validate_weights(self):
-        total_weight = 0.0
+        if not isinstance(self.region_weights, Mapping):
+            raise ValueError("Region weights must be a mapping.")
+        flat_allocation = {}
         seen_countries = set()
         for region, countries in self.region_weights.items():
-            region_sum = sum(countries.values())
-            if abs(region_sum - 1.0) > 1e-6:
-                # If region sum isn't 1.0, we assume the user provided absolute portfolio weights
-                # instead of relative weights within the region.
-                pass
-
+            if not isinstance(countries, Mapping):
+                raise ValueError(f"Country weights for {region} must be a mapping.")
             for country in countries:
                 if country in seen_countries:
                     raise ValueError(
                         f"Country {country} specified in multiple regions."
                     )
                 seen_countries.add(country)
-
-            total_weight += sum(countries.values())
-
-        if abs(total_weight - 1.0) > 1e-6:
-            raise ValueError(
-                f"Total portfolio weight must sum to 1.0 (got {total_weight})"
-            )
+            flat_allocation.update(countries)
+        validate_allocation(flat_allocation, context="Total portfolio")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
+        self._validate_weights()
         flat_allocation = {}
         for region, countries in self.region_weights.items():
             for country, weight in countries.items():
@@ -108,17 +118,27 @@ class GlidePathStrategy(Strategy):
         self.end_equity = end_equity
 
         # Default to "Stocks" and "Bonds" for backward compatibility
-        self.equity_assets = equity_assets or {"Stocks": 1.0}
-        self.bond_assets = bond_assets or {"Bonds": 1.0}
+        self.equity_assets = validate_allocation(
+            {"Stocks": 1.0} if equity_assets is None else equity_assets,
+            context="Equity asset",
+        )
+        self.bond_assets = validate_allocation(
+            {"Bonds": 1.0} if bond_assets is None else bond_assets,
+            context="Bond asset",
+        )
+        self._validate_parameters()
 
-        # Validation
-        if abs(sum(self.equity_assets.values()) - 1.0) > 1e-6:
-            raise ValueError("Equity asset weights must sum to 1.0")
-        if abs(sum(self.bond_assets.values()) - 1.0) > 1e-6:
-            raise ValueError("Bond asset weights must sum to 1.0")
+    def _validate_parameters(self):
+        _validate_timeline(self.start_age, self.retire_age)
+        for name in ("start_equity", "end_equity"):
+            if not 0 <= finite_number(getattr(self, name), context=name) <= 1:
+                raise ValueError(f"{name} must be between 0 and 1.")
+        self.equity_assets = validate_allocation(self.equity_assets, context="Equity asset")
+        self.bond_assets = validate_allocation(self.bond_assets, context="Bond asset")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
         """Calculates the granular asset split for a given age."""
+        self._validate_parameters()
         if age <= self.start_age:
             equity_pct = self.start_equity
         elif age >= self.retire_age:
@@ -152,7 +172,10 @@ class BalancedStrategy(Strategy):
         self.bond_label = bond_label
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
-        return {self.domestic_label: 0.60, self.bond_label: 0.40}
+        # Components with the same holding label add their weights.
+        allocation = {self.domestic_label: 0.60}
+        allocation[self.bond_label] = allocation.get(self.bond_label, 0.0) + 0.40
+        return allocation
 
 
 class _PaperStrategy(Strategy):
@@ -161,6 +184,7 @@ class _PaperStrategy(Strategy):
     def resolve_allocation_for_market(
         self, allocation: Dict[str, float], available_assets: Iterable[str]
     ) -> Dict[str, float]:
+        allocation = validate_allocation(allocation)
         # Subclasses can provide their own constructor and allocation hook.
         # Only resolve defaults recorded by a paper strategy constructor.
         if not hasattr(self, "_default_domestic") or not hasattr(self, "_default_international"):
@@ -196,7 +220,7 @@ class _PaperStrategy(Strategy):
         for asset, weight in allocation.items():
             for constituent, relative_weight in replacements.get(asset, {asset: 1.0}).items():
                 resolved[constituent] = resolved.get(constituent, 0.0) + weight * relative_weight
-        return resolved
+        return validate_allocation(resolved, context="Resolved allocation")
 
 
 class PaperOptimalStrategy(_PaperStrategy):
@@ -230,11 +254,10 @@ class PaperOptimalStrategy(_PaperStrategy):
         )
         self.bills_label = bills_label
 
-        # Validation for intl_assets
-        if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
-            raise ValueError("International asset weights must sum to 1.0")
+        self.intl_assets = validate_allocation(self.intl_assets, context="International asset")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
+        self.intl_assets = validate_allocation(self.intl_assets, context="International asset")
         # Table III reports the paper's optimal fixed-weight allocation as 34/66.
         # Map that weight to the caller's selected international constituents.
         allocation = {self.dom_label: 0.34}
@@ -279,10 +302,12 @@ class PaperTDFStrategy(_PaperStrategy):
         self.bond_label = bond_label
         self.bills_label = bills_label
 
-        if abs(sum(self.intl_assets.values()) - 1.0) > 1e-6:
-            raise ValueError("International asset weights must sum to 1.0")
+        _validate_timeline(self.start_age, self.retire_age)
+        self.intl_assets = validate_allocation(self.intl_assets, context="International asset")
 
     def _get_allocation(self, age: float) -> Dict[str, float]:
+        _validate_timeline(self.start_age, self.retire_age)
+        self.intl_assets = validate_allocation(self.intl_assets, context="International asset")
         if age <= self.start_age:
             p = 0.0
         elif age >= self.retire_age:

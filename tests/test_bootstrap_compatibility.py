@@ -1,5 +1,3 @@
-import math
-
 import pandas as pd
 import pytest
 
@@ -70,46 +68,66 @@ def test_country_bootstrap_preserves_source_series_without_derived_aggregates(
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
-def test_missing_country_observation_retains_its_zero_return_weight(
+def test_missing_country_observation_is_omitted_and_held_asset_fails(
     tmp_path, country_row, engine_type
 ):
     country_row["JPN"] = float("nan")
     returns = engine_type(write_country_csv(tmp_path, country_row)).get_annual_returns()
 
-    assert math.isnan(returns["JPN"])
+    assert "JPN" not in returns
+    assert returns["GBR"] == 0.10
     assert INTERNATIONAL_STOCK not in returns
 
     investor = Investor(25, 0.0, {"GBR": 30.0, "JPN": 30.0, "FRA": 20.0, "DEU": 20.0})
-    investor.apply_returns(returns)
-    assert investor.holdings == pytest.approx(
-        {"GBR": 33.0, "JPN": 30.0, "FRA": 26.0, "DEU": 30.0}
-    )
-    assert investor.total_portfolio_value == pytest.approx(119.0)
+    before = dict(investor.holdings)
+    with pytest.raises(ValueError, match="missing return series for JPN"):
+        investor.apply_returns(returns)
+    assert investor.holdings == before
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
-@pytest.mark.parametrize("aggregate_value", [0.75, float("nan")])
 def test_existing_aggregate_series_are_preserved(
-    tmp_path, country_row, engine_type, aggregate_value
+    tmp_path, country_row, engine_type
 ):
+    aggregate_value = 0.75
     country_row[DOMESTIC_STOCK] = aggregate_value
     country_row[INTERNATIONAL_STOCK] = aggregate_value
     returns = engine_type(write_country_csv(tmp_path, country_row)).get_annual_returns()
 
     for name in [DOMESTIC_STOCK, INTERNATIONAL_STOCK]:
-        if math.isnan(aggregate_value):
-            assert math.isnan(returns[name])
-        else:
-            assert returns[name] == aggregate_value
+        assert returns[name] == aggregate_value
 
     investor = Investor(25, 0.0, {DOMESTIC_STOCK: 40.0, INTERNATIONAL_STOCK: 60.0})
     investor.apply_returns(returns)
-    expected = (
-        {DOMESTIC_STOCK: 40.0, INTERNATIONAL_STOCK: 60.0}
-        if math.isnan(aggregate_value)
-        else {DOMESTIC_STOCK: 70.0, INTERNATIONAL_STOCK: 105.0}
+    assert investor.holdings == pytest.approx(
+        {DOMESTIC_STOCK: 70.0, INTERNATIONAL_STOCK: 105.0}
     )
-    assert investor.holdings == pytest.approx(expected)
+
+
+@pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
+@pytest.mark.parametrize("missing_asset", [DOMESTIC_STOCK, INTERNATIONAL_STOCK])
+def test_missing_aggregate_is_omitted_without_losing_finite_series(
+    tmp_path, country_row, engine_type, missing_asset
+):
+    country_row.update({DOMESTIC_STOCK: 0.0, INTERNATIONAL_STOCK: -1.0})
+    country_row[missing_asset] = None
+    returns = engine_type(write_country_csv(tmp_path, country_row)).get_annual_returns()
+    assert returns == {
+        asset: value for asset, value in country_row.items()
+        if asset not in {"Year", missing_asset}
+    }
+    investor = Investor(25, 0.0, {missing_asset: 100.0})
+    with pytest.raises(ValueError, match=f"missing return series for {missing_asset}"):
+        investor.apply_returns(returns)
+    assert investor.total_portfolio_value == 100.0
+
+
+@pytest.mark.parametrize("invalid_value", [float("inf"), -float("inf")])
+def test_nonfinite_bootstrap_observations_fail_closed(tmp_path, country_row, invalid_value):
+    country_row["USA"] = invalid_value
+    market = BootstrapMarket(write_country_csv(tmp_path, country_row))
+    with pytest.raises(ValueError, match="numeric and finite"):
+        market.get_annual_returns()
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
@@ -184,16 +202,22 @@ def test_explicit_country_mapping_uses_its_own_domestic_and_international_return
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
 @pytest.mark.parametrize("missing_country", ["USA", "GBR", "JPN", "FRA", "DEU"])
+@pytest.mark.parametrize("missing_kind", ["absent", "nan"])
 def test_incomplete_country_basket_fails_before_contribution(
-    tmp_path, country_row, engine_type, strategy_type, missing_country, monkeypatch
+    tmp_path, country_row, engine_type, strategy_type, missing_country, missing_kind,
+    monkeypatch
 ):
-    del country_row[missing_country]
+    if missing_kind == "absent":
+        del country_row[missing_country]
+    else:
+        country_row[missing_country] = float("nan")
     missing_aggregate = DOMESTIC_STOCK if missing_country == "USA" else INTERNATIONAL_STOCK
 
     def unexpected_contribution(*args, **kwargs):
         pytest.fail("Missing return validation must happen before contribution")
 
     monkeypatch.setattr(Investor, "earn_and_save", unexpected_contribution)
+    monkeypatch.setattr(Investor, "apply_returns", unexpected_contribution)
     with pytest.raises(ValueError, match=f"{strategy_type.__name__} at age 25:.*{missing_aggregate}"):
         Simulator(short_country_config()).run_stochastic(
             strategy_type(),

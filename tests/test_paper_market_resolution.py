@@ -20,33 +20,6 @@ AGGREGATE_MAPPING = {
     "intl_assets": {INTERNATIONAL_STOCK: 1.0},
 }
 
-# Independent balances: JPN keeps its 30% share of the international sleeve
-# with growth factor 1. Annual growth precedes withdrawals; monthly withdrawals
-# precede separately compounded constituent growth and monthly rebalancing.
-NAN_COUNTRY_PATHS = {
-    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2193.4, 2485.99956, 2831.239754904, 3239.182839902],
-    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2193.4, 2454.504370488, 2759.552170546, 3116.538292043],
-    (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2063.4975, 2064.52924875, 2061.909122799, 2055.304754864],
-    (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2063.4975, 2055.544392157, 2043.299873330, 2026.400076736],
-}
-NAN_COUNTRY_WITHDRAWALS = {
-    PaperOptimalStrategy: [0.0, 0.0, 0.0, 131.604, 135.55212, 139.6186836],
-    PaperTDFStrategy: [0.0, 0.0, 0.0, 123.80985, 127.5241455, 131.349869865],
-}
-
-# Missing aggregates preserve both equity sleeves; Bonds and Bills still grow.
-NAN_AGGREGATE_PATHS = {
-    (PaperOptimalStrategy, "annual"): [0.0, 1000.0, 2000.0, 1880.0, 1756.4, 1629.092],
-    (PaperOptimalStrategy, "monthly"): [0.0, 1000.0, 2000.0, 1880.0, 1756.4, 1629.092],
-    (PaperTDFStrategy, "annual"): [0.0, 1000.0, 2026.62, 1960.146864, 1888.217742701, 1810.574795822],
-    (PaperTDFStrategy, "monthly"): [0.0, 1000.0, 2026.62, 1957.946024587, 1883.717680770, 1803.674038931],
-}
-NAN_AGGREGATE_WITHDRAWALS = {
-    PaperOptimalStrategy: [0.0, 0.0, 0.0, 120.0, 123.6, 127.308],
-    PaperTDFStrategy: [0.0, 0.0, 0.0, 121.5972, 125.245116, 129.00246948],
-}
-
-
 EXPLICIT_OVERLAP_CASES = [
     pytest.param(PaperOptimalStrategy, {"dom_label": "USA", "intl_assets": {"USA": 1.0}},
                  {"USA": 1.0}, {"USA": 1.0}, id="optimal-equities"),
@@ -205,27 +178,29 @@ def test_default_paper_strategies_work_with_validated_synthetic_world_configs(st
 @pytest.mark.parametrize("engine_name", ["block", "stationary"])
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
-def test_nan_country_constituents_match_the_explicit_basket(
-    tmp_path, country_returns, engine_name, strategy_type, granularity
+def test_nan_country_constituent_fails_before_contribution_or_growth(
+    tmp_path, country_returns, engine_name, strategy_type, granularity, monkeypatch
 ):
     country_returns["JPN"] = float("nan")
     config = lifecycle_config(country_returns, engine_name, granularity)
-    actual = simulate(tmp_path, country_returns, engine_name, config, strategy_type())
-    expected = simulate(
-        tmp_path, country_returns, engine_name, config, strategy_type(**COUNTRY_MAPPING)
-    )
-    assert_same_result(actual, expected)
-    expected_path = NAN_COUNTRY_PATHS[strategy_type, granularity]
-    assert actual.paths[0] == pytest.approx(expected_path)
-    assert actual.terminal_wealths == pytest.approx([expected_path[-1]])
-    assert actual.withdrawal_paths[0] == pytest.approx(NAN_COUNTRY_WITHDRAWALS[strategy_type])
+
+    def unexpected_side_effect(*args, **kwargs):
+        pytest.fail("Unavailable active returns must fail before contribution or growth")
+
+    monkeypatch.setattr(Investor, "earn_and_save", unexpected_side_effect)
+    monkeypatch.setattr(Investor, "apply_returns", unexpected_side_effect)
+    with pytest.raises(
+        ValueError,
+        match=f"{strategy_type.__name__} at age 63:.*missing return series for International Stock",
+    ):
+        simulate(tmp_path, country_returns, engine_name, config, strategy_type())
 
 
 @pytest.mark.parametrize("engine_name", ["block", "stationary"])
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
-@pytest.mark.parametrize("aggregate_returns", [(0.45, -0.10), (float("nan"), float("nan"))])
-def test_supplied_aggregates_are_authoritative_even_with_countries_and_nans(
+@pytest.mark.parametrize("aggregate_returns", [(0.45, -0.10)])
+def test_supplied_finite_aggregates_are_authoritative_with_country_data(
     tmp_path, country_returns, engine_name, strategy_type, granularity, aggregate_returns
 ):
     country_returns[DOMESTIC_STOCK], country_returns[INTERNATIONAL_STOCK] = aggregate_returns
@@ -239,11 +214,34 @@ def test_supplied_aggregates_are_authoritative_even_with_countries_and_nans(
     )
     assert_same_result(actual, expected)
     assert actual.terminal_wealths[0] != pytest.approx(country_basket.terminal_wealths[0])
-    if pd.isna(aggregate_returns[0]):
-        expected_path = NAN_AGGREGATE_PATHS[strategy_type, granularity]
-        assert actual.paths[0] == pytest.approx(expected_path)
-        assert actual.terminal_wealths == pytest.approx([expected_path[-1]])
-        assert actual.withdrawal_paths[0] == pytest.approx(NAN_AGGREGATE_WITHDRAWALS[strategy_type])
+
+
+@pytest.mark.parametrize("engine_name", ["block", "stationary"])
+@pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
+@pytest.mark.parametrize("granularity", ["annual", "monthly"])
+@pytest.mark.parametrize("missing_asset", [DOMESTIC_STOCK, INTERNATIONAL_STOCK])
+def test_nan_aggregate_is_omitted_and_explicit_target_fails_before_side_effects(
+    tmp_path, country_returns, engine_name, strategy_type, granularity,
+    missing_asset, monkeypatch,
+):
+    country_returns[DOMESTIC_STOCK] = 0.45
+    country_returns[INTERNATIONAL_STOCK] = -0.10
+    country_returns[missing_asset] = float("nan")
+    config = lifecycle_config(country_returns, engine_name, granularity)
+
+    def unexpected_side_effect(*args, **kwargs):
+        pytest.fail("Unavailable active returns must fail before contribution or growth")
+
+    monkeypatch.setattr(Investor, "earn_and_save", unexpected_side_effect)
+    monkeypatch.setattr(Investor, "apply_returns", unexpected_side_effect)
+    with pytest.raises(
+        ValueError,
+        match=f"{strategy_type.__name__} at age 63:.*missing return series for {missing_asset}",
+    ):
+        simulate(
+            tmp_path, country_returns, engine_name, config,
+            strategy_type(**AGGREGATE_MAPPING),
+        )
 
 
 @pytest.mark.parametrize("engine_name", ENGINES)

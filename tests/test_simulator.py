@@ -93,7 +93,11 @@ def test_investor_withdraw_and_rebalance_supports_new_retirement_assets():
         holdings={"Domestic Stock": 100.0, "International Stock": 200.0},
     )
     target_alloc = {"Domestic Stock": 0.26, "International Stock": 0.47, "Bills": 0.27}
-    investor.withdraw(60.0, target_alloc)
+    assert investor.withdraw(60.0, target_alloc) == pytest.approx(60.0)
+    # Check before rebalancing: the old implementation shorted absent Bills.
+    assert investor.holdings == pytest.approx({"Domestic Stock": 80.0, "International Stock": 160.0})
+    assert investor.total_portfolio_value == pytest.approx(240.0)
+    assert all(value >= 0.0 for value in investor.holdings.values())
     investor.rebalance(target_alloc)
 
     assert investor.total_portfolio_value == pytest.approx(240.0)
@@ -117,7 +121,7 @@ def _minimal_config() -> SimulationConfig:
 
 
 def test_path_tracking_disabled_by_default():
-    """Without track_paths the return value is a plain list (backward compat)."""
+    """Without track_paths outcomes remain list-compatible and identify their source."""
     config = _minimal_config()
     sim = Simulator(config)
     strategy = FixedAllocationStrategy({"Stocks": 1.0})
@@ -126,6 +130,7 @@ def test_path_tracking_disabled_by_default():
     assert isinstance(result, list), "Default return type must be List[float]"
     assert len(result) == 3
     assert all(isinstance(v, float) for v in result)
+    assert result.provenance.kind == "synthetic"
 
 
 def test_path_tracking_shape_and_values():
@@ -138,6 +143,8 @@ def test_path_tracking_shape_and_values():
     result = sim.run_stochastic(strategy, num_trials=num_trials, track_paths=True)
 
     assert isinstance(result, SimulationResult)
+    assert result.provenance.kind == "synthetic"
+    assert result.terminal_wealths.provenance == result.provenance
     assert len(result.terminal_wealths) == num_trials
     assert len(result.paths) == num_trials
     assert len(result.withdrawal_paths) == num_trials

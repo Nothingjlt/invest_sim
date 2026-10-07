@@ -4,6 +4,15 @@ import pandas as pd
 import numpy as np
 from src.data_loader import JSTDataLoader, CountryMetadataRegistry
 
+
+def test_missing_jst_input_fails_closed_without_generating_data(tmp_path):
+    csv_file = tmp_path / "jst_dataset.csv"
+
+    with pytest.raises(FileNotFoundError, match="JST dataset CSV not found"):
+        JSTDataLoader(str(csv_file))
+
+    assert not csv_file.exists()
+
 def test_country_metadata_registry():
     assert CountryMetadataRegistry.get_sample_period("USA") == (1890, 2023)
     assert CountryMetadataRegistry.get_sample_period("GBR") == (1890, 2023)
