@@ -318,8 +318,13 @@ rules and remaining alternatives.
 `PooledPerspectiveBootstrapMarket` provides the annual broad-pooling path. It
 uses complete, real return vectors from country perspectives, samples country
 and date at geometric block starts, and restarts at country-history gaps and
-endpoints. The default gives each eligible country equal block-start
-probability and uses a mean block length of 10 annual observations.
+endpoints. The default gives each eligible country equal probability at each
+block start. `block_size` is the mean of the untruncated geometric request
+(10 annual observations by default). Gaps and endpoints truncate blocks, so
+observed blocks can be shorter; a simulated path ending can also shorten the
+final block. Equal start probabilities do not imply equal realized observation
+exposure: short histories contribute fewer observations per start on average,
+and long contiguous segments can dominate observed path years.
 
 ```python
 from src.market import PooledPerspectiveBootstrapMarket
@@ -341,6 +346,11 @@ diagnostics = market.get_diagnostics()
 last_observation = market.last_observation
 market_universe = market.market_universe_report
 ```
+
+Diagnostics distinguish `intended_country_start_probabilities`,
+`realized_country_start_counts`, and `realized_country_observation_counts`.
+`observed_block_length_counts` records realized block lengths, including
+boundary truncation and path-end censoring.
 
 The baseline weights use nominal GDP converted with JST's `xrusd` field after
 applying the R6 country-specific scale multipliers in

@@ -343,21 +343,27 @@ apply to redistribution and derived data.
    rows across a gap as consecutive.
 4. At every block start, `PooledPerspectiveBootstrapMarket` chooses a country
    uniformly, then a valid start year uniformly within that country. It follows
-   consecutive years in that segment. A geometric block has expected length
-   `block_size` (10 by default); at a block end, gap, or endpoint it draws a
-   fresh country and start. The instance-local seeded RNG does not alter global
-   random state.
+   consecutive years in that segment. `block_size` (10 by default) is the mean
+   of the untruncated geometric request. Gaps and endpoints truncate observed
+   blocks; at a block end, gap, or endpoint it draws a fresh country and start.
+   A simulated path ending can also shorten the final block. The instance-local
+   seeded RNG does not alter global random state.
 5. `country_sampling="observation_weighted"` is also implemented for
    comparison. It chooses uniformly among all usable country-year starts.
-6. `get_diagnostics()` reports intended and realized country exposure,
-   country-year counts, valid segment lengths, block-length counts, natural
-   block ends, gap/endpoint restarts, path-end censoring, and source coverage.
+6. `get_diagnostics()` distinguishes `intended_country_start_probabilities`,
+   `realized_country_start_counts`, and `realized_country_observation_counts`.
+   It also reports country-year counts, valid segment lengths,
+   `observed_block_length_counts` after boundary truncation and path-end
+   censoring, natural block ends, gap/endpoint restarts, and source coverage.
    `last_observation` identifies the most recently sampled country/year and
    weighting metadata.
 
-The implemented equal-country block-start rule prevents countries with longer
-archives from automatically dominating. It assumes equal relevance across the
-included countries. It is separate from international-equity weights: GDP
+The implemented equal-country rule gives each included country equal
+probability at each block start, assuming equal relevance for those starts.
+It does not give equal realized observation exposure: short histories
+contribute fewer observations per start on average because gaps and endpoints
+truncate blocks, while long contiguous segments can dominate observed path
+years. It is separate from international-equity weights: GDP
 weights define the foreign markets inside one country's international-stock
 return; country-selection weights define which domestic environment supplies a
 bootstrap block.
@@ -375,7 +381,7 @@ missing values.
 
 | Pooling model | Country selection | Interpretation and tradeoff |
 | --- | --- | --- |
-| **Equal-country block starts (implemented baseline)** | Choose a usable country uniformly, then a valid date uniformly within it. | Broad mixture that prevents longer records alone from setting country weights. Short histories receive more weight per observation. |
+| **Equal-country block starts (implemented baseline)** | Choose a usable country uniformly, then a valid date uniformly within it. | Equal probability at each block start; realized observation exposure depends on boundary truncation. Short histories contribute fewer observations per start on average, and long segments can dominate observed path years. |
 | Observation-weighted starts (implemented alternative) | Choose uniformly among all usable country-period rows. | A random recorded country-period; long histories contribute more block starts. Closer to sampling a row from the full pooled panel. |
 | One country per simulated path | Choose one country, then sample its segments for the entire lifecycle. | Preserves persistent country differences; limited by that country's usable record and can require repeated block restarts. |
 | Peer/similarity-weighted pool | Weight countries using declared features such as currency regime, income, financial-market depth, or sovereign-risk characteristics. | More target-relevant in principle, but peer definitions are judgment calls and can omit important crises. Defer until a target country is specified. |

@@ -104,7 +104,9 @@ class JSTDataLoader:
         if "xrusd" in self.raw_data.columns and "exrat" not in self.raw_data.columns:
             self.raw_data.rename(columns={"xrusd": "exrat"}, inplace=True)
             
-        # Standardize crucial columns
+        # Standardize crucial columns. GDP and its scale metadata require exact
+        # names after case normalization: gdp_scale, real GDP, and GDP per capita
+        # must never be treated as nominal gdp by substring matching.
         col_mappings = {
             "year": "year",
             "country": "country",
@@ -114,8 +116,6 @@ class JSTDataLoader:
             "eq_tr": "eq_tr",
             "bond_tr": "bond_tr",
             "bill_rate": "bill_rate",
-            "gdp": "gdp",
-            "gdp_scale": "gdp_scale",
         }
         
         for std_col in col_mappings.values():
@@ -304,10 +304,11 @@ class JSTDataLoader:
         using JST FX because its historical FX timing/source conventions are
         not uniform. GDP's stored magnitude must be converted through either a
         ``gdp_scale`` column or ``gdp_scale_factors``; built-in scale factors
-        assume JST R6. Missing scale metadata fails closed. The default
-        foreign universe includes markets with an observed equity-return
-        series. Within that universe, every market must have lagged weight
-        inputs and a year-``t`` return. A lower ``min_weight_coverage`` permits
+        assume JST R6. Nominal GDP requires the exact ``gdp`` column name
+        (case-insensitive); missing nominal GDP or scale metadata fails closed.
+        The default foreign universe includes markets with an observed
+        equity-return series. Within that universe, every market must have lagged
+        weight inputs and a year-``t`` return. A lower ``min_weight_coverage`` permits
         partial return baskets to be renormalized; the achieved share is
         retained in the result and in :meth:`get_pooled_coverage_report`.
 
