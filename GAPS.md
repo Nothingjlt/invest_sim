@@ -204,42 +204,36 @@ countries.
 
 ### Bootstrap input validation
 
-**Status:** Open
+**Status:** Completed
 
-CSV bootstrap constructors currently accept invalid or unusable inputs too late:
+The legacy CSV bootstrap constructors now fail fast on invalid or unusable
+inputs:
 
-- `block_size=0` is accepted; stationary sampling later divides by zero, while
-  fixed-block sampling silently starts a new block for every draw;
-- empty panels fail later with low-level indexing errors; and
-- `_observed_returns` rejects non-finite values but permits simple returns below
-  `-1`, which are economically invalid and may only fail once an affected asset
-  is held.
+- `block_size` must be a positive integer for fixed, stationary, and legacy
+  perspective bootstraps;
+- raw and processed perspective panels must contain at least one row; and
+- non-missing return cells must be numeric and finite, with simple returns
+  below `-1` rejected before sampling.
 
-Add constructor-level validation for positive integer block sizes, fail clearly
-on empty panels (including an empty processed perspective panel), and reject
-returns below `-1` before sampling or simulation. Add focused tests for each
-failure mode and for both fixed and stationary engines.
+Explicit missing/NaN cells in legacy CSV panels remain unavailable observations:
+they are omitted from the sampled mapping so existing coverage validation can
+report a missing held asset. This is distinct from a present non-finite value
+such as infinity, which is rejected.
 
 ### Inconsistent monthly handling of invalid returns
 
-**Status:** Open
+**Status:** Completed
 
-Annual simulation rejects a simple return below `-1` through investor return
-validation, but monthly decumulation currently converts any annual return with
-`1 + R <= 0` into `-1` (a total loss) before applying it. Consequently, a
-custom market returning `-1.1` can fail in annual mode but silently complete as
-a total loss in monthly mode. This is an economically inconsistent treatment
-of malformed input.
+The simulator now validates each custom market observation once, immediately
+after it is returned and before either annual or monthly processing. Annual and
+monthly paths both reject nonnumeric/non-finite values and simple returns below
+`-1`; the monthly path only accepts `-1` as an actual total loss and never
+coerces a lower value into one.
 
-The same monthly path assumes the optional `Inflation` value is numeric when
-the key is present. `Inflation=None` is handled by the fallback, but other
-invalid values such as `NaN`, infinity, or non-numeric objects can reach
-arithmetic before the fallback or centralized validation.
-
-Validate every supplied market return and metadata value once, before either
-annual or monthly processing. Reject non-finite values and returns below `-1`,
-and define the accepted behavior for a missing or invalid `Inflation` field.
-Add parity tests showing that annual and monthly modes fail consistently.
+Missing `Inflation` and an explicit `Inflation=None` both mean zero inflation,
+preserving the existing fallback. Present nonnumeric/non-finite inflation is
+invalid and fails before arithmetic; numeric inflation below `-1` is also
+rejected because it would produce a non-positive adjustment factor.
 
 ### Pre-existing world-market configuration gap
 
@@ -257,15 +251,13 @@ market descriptors should be separated from portfolio allocations. Then add a
 regression test that exercises the chosen contract; do not silently change this
 as part of the paper-bootstrap work.
 
-### Additional tests needed
+### Additional tests needed for remaining open gaps
 
 The open gaps above should be covered by:
 
 - multi-row stationary and fixed-block fixtures that exercise country-history
   boundaries and continuation behavior;
 - lagged market-cap weighting and disjoint country-eligibility fixtures;
-- invalid block sizes, empty panels, and returns below `-1`;
-- invalid monthly returns and `Inflation` values, with annual/monthly parity;
 - a factory-contract test for `get_world_market_configs()`; and
 - a lightweight documentation/review check that paper-compatibility claims
   continue to link to this file.

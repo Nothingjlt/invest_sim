@@ -271,6 +271,17 @@ their origin. Omit the declaration to keep unfamiliar data labeled unverified.
 
 *(Note: When using `BootstrapMarket`, ensure your strategy's `dom_label` and `intl_assets` match the column names in your CSV, such as `"USA"`, `"GBR"`, etc.)*
 
+The legacy `BootstrapMarket`, `StationaryBootstrapMarket`, and
+`PerspectiveBootstrapMarket` constructors require a positive integer
+`block_size`, a non-empty input panel (and, for the perspective engine, a
+non-empty processed panel), and numeric finite return observations no lower
+than `-1`. Blank/NaN cells remain unavailable observations and are omitted so
+country-coverage validation can distinguish missing data from malformed data.
+The simulator applies the same return validation to custom market engines
+before either annual or monthly processing. A missing `Inflation` field or an
+explicit `Inflation=None` uses zero inflation; nonnumeric, non-finite, or
+below-`-1` inflation metadata is rejected before it reaches arithmetic.
+
 ## Real-World JST Macrohistory Database Integration
 
 The project can process the **Jordà-Schularick-Taylor (JST) Macrohistory Database**. Release R6 provides annual data for 18 advanced economies beginning in 1870; country and variable coverage vary, and the return-data fetcher describes its coverage through 2020. This is distinct from the paper's 39-country monthly dataset.

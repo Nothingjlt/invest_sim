@@ -125,9 +125,8 @@ def test_missing_aggregate_is_omitted_without_losing_finite_series(
 @pytest.mark.parametrize("invalid_value", [float("inf"), -float("inf")])
 def test_nonfinite_bootstrap_observations_fail_closed(tmp_path, country_row, invalid_value):
     country_row["USA"] = invalid_value
-    market = BootstrapMarket(write_country_csv(tmp_path, country_row))
     with pytest.raises(ValueError, match="numeric and finite"):
-        market.get_annual_returns()
+        BootstrapMarket(write_country_csv(tmp_path, country_row))
 
 
 @pytest.mark.parametrize("engine_type", BOOTSTRAP_ENGINES)

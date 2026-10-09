@@ -277,7 +277,13 @@ class JSTDataLoader:
                 "Inflation": cpi_ratio_p - 1,  # Annual inflation rate as a decimal
             })
 
-        result_df = pd.DataFrame(processed_rows)
+        result_df = pd.DataFrame(
+            processed_rows,
+            columns=[
+                "Year", DOMESTIC_STOCK, INTERNATIONAL_STOCK,
+                BONDS, BILLS, "Inflation",
+            ],
+        )
         # Drop rows where crucial elements are NaN
         result_df.dropna(subset=["Domestic Stock", "International Stock", "Bonds", "Bills"], inplace=True)
         return result_df.reset_index(drop=True)
