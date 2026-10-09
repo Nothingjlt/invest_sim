@@ -363,6 +363,16 @@ path even when present in the CSV. The lag requirement also excludes 1927 and
 missing: they are never filled with zero, and an incomplete four-asset vector
 is omitted under the existing legacy coverage rule.
 
+In both fixed and stationary modes, `PerspectiveBootstrapMarket` restarts a
+block at an internal calendar gap in this processed panel, drawing a fresh
+start uniformly from all usable rows. Thus 1970 and 2011 cannot be consecutive
+observations within a block, although a random block start can select either
+year. This also applies to gaps from missing observations or incomplete
+vectors. Fixed blocks can be shorter than `block_size`; for stationary blocks,
+`block_size` describes the mean request before gap truncation. Contiguous rows
+retain their existing behavior, including the legacy circular wrap from the
+last row to the first. The pooled engine instead restarts at endpoints too.
+
 `CountryMetadataRegistry.get_sample_periods(iso)` returns a tuple of inclusive
 `(start_year, end_year)` intervals, matching the values now stored in
 `COUNTRY_SAMPLE_PERIODS`. Use `is_valid_year_for_country(iso, year)` for

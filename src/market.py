@@ -582,6 +582,8 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
     """
     Generates returns by running a perspective-country-aware bootstrap.
     Uses JSTDataLoader to build a customized panel of FX-adjusted real returns.
+    Internal calendar gaps restart blocks; the legacy circular endpoint wrap
+    is retained.
     """
 
     def __init__(
@@ -618,6 +620,11 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
         )
 
         self.data = processed_data
+        years = self.data["Year"].to_numpy()
+        self._gap_starts = {
+            index for index in range(1, len(years))
+            if years[index] != years[index - 1] + 1
+        }
         self.stationary_bootstrap = stationary_bootstrap
         if seed is not None:
             random.seed(seed)
@@ -638,12 +645,22 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
             if self.first_step:
                 self.first_step = False
             else:
-                if random.random() < (1.0 / self.block_size):
+                next_index = (self.current_index + 1) % len(self.data)
+                if (
+                    random.random() < (1.0 / self.block_size)
+                    or next_index in self._gap_starts
+                ):
                     self.current_index = random.randint(0, len(self.data) - 1)
                 else:
-                    self.current_index = (self.current_index + 1) % len(self.data)
+                    self.current_index = next_index
 
             row = self.data.iloc[self.current_index]
             return self._observed_returns(row)
         else:
-            return super().get_annual_returns()
+            returns = super().get_annual_returns()
+            # The parent advances to the next row after returning this one.
+            # Truncate here so a random start at a segment's first row remains
+            # valid, while sequential continuation across a gap is prevented.
+            if self.current_index % len(self.data) in self._gap_starts:
+                self.remaining_in_block = 0
+            return returns

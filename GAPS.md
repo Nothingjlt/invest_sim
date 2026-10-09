@@ -209,6 +209,18 @@ gap, foreign-basket exclusion, perspective coverage, and true missing returns.
 The broad pooled loader continues to use observed JST source coverage rather
 than this paper-specific registry.
 
+`PerspectiveBootstrapMarket` also respects internal calendar gaps in the
+processed output: fixed blocks are truncated and stationary continuation
+forces a fresh uniform draw among usable rows. Eligibility exclusions and
+missing/incomplete observations all create the same boundary; 1970 followed
+by 2011 is never treated as continuation within a block. A fresh block may
+start in either interval. Contiguous progression and the legacy circular
+endpoint wrap are preserved, unlike the pooled engine's restart-at-end rule.
+This is an annual fixed-perspective correction, not the paper's unfinished
+block continuation into another country's history. Controlled multi-row
+regressions in `tests/test_bootstrap.py` cover both modes, gap restarts, fresh
+path starts, contiguous wrapping, and natural stationary restarts.
+
 ### Bootstrap input validation
 
 **Status:** Completed
