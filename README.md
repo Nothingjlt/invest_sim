@@ -46,6 +46,44 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
    *(A root `conftest.py` automatically adds the project root to `sys.path`.)*
 
 
+## Market descriptors and strategy allocations
+
+`MarketConfig(name, expected_return, volatility)` describes an available asset
+and its synthetic return assumptions. `SimulationConfig.markets` defines the
+investment universe. The default configuration, `get_paper_market_configs()`,
+and `get_world_market_configs()` supply descriptors with `weight=None`, so their
+output passes configuration validation without assigning a portfolio policy.
+
+Every strategy owns its target weights through `get_allocation(age)`, including
+`WorldEquityStrategy`, `PaperOptimalStrategy`, `PaperTDFStrategy`,
+`BalancedStrategy`, `FixedAllocationStrategy`, `GlidePathStrategy`, and custom
+`Strategy` subclasses. The simulator uses the strategy's resolved allocation
+for contributions, rebalancing, and withdrawals. Paper strategies keep their
+logical Domestic/International Stock sleeves when those return series exist;
+with country-only series, their default resolver maps domestic stock to USA
+and international stock to GBR/JPN/FRA/DEU using its existing constituent mix.
+Explicit strategy label mappings retain their existing behavior.
+
+```python
+from src.config import SimulationConfig
+from src.strategy import WorldEquityStrategy
+
+config = SimulationConfig(markets=SimulationConfig.get_world_market_configs())
+config.validate()  # No placeholder weights or default investment policy needed.
+strategy = WorldEquityStrategy({"Developed": {"USA": 0.5, "GBR": 0.3, "JPN": 0.2}})
+```
+
+For compatibility, `MarketConfig(..., weight=...)` and the fourth positional
+argument remain supported as legacy allocation metadata. If any market has a
+numeric weight, every market must have one, and the weights must be finite,
+nonnegative, and sum to one (within the existing rounding tolerance). All-zero
+weights and mixtures of omitted/numeric weights are rejected. Legacy weights
+never override a strategy. To migrate descriptor-only callers, omit all weights
+or set all of them to `None`; move portfolio allocations into a strategy, such as
+`FixedAllocationStrategy`. Code extracting numeric weights from the paper/world
+factories must now obtain them from the chosen strategy. The paper factory no
+longer embeds `PaperOptimalStrategy`'s 34/66 policy.
+
 ## Usage Example
 
 The following script compares the paper's **100% Equity (Optimal)** strategy against a **Traditional Target Date Fund (TDF)** using synthetic market parameters derived from historical developed market data.
@@ -271,6 +309,17 @@ their origin. Omit the declaration to keep unfamiliar data labeled unverified.
 
 *(Note: When using `BootstrapMarket`, ensure your strategy's `dom_label` and `intl_assets` match the column names in your CSV, such as `"USA"`, `"GBR"`, etc.)*
 
+The legacy `BootstrapMarket`, `StationaryBootstrapMarket`, and
+`PerspectiveBootstrapMarket` constructors require a positive integer
+`block_size`, a non-empty input panel (and, for the perspective engine, a
+non-empty processed panel), and numeric finite return observations no lower
+than `-1`. Blank/NaN cells remain unavailable observations and are omitted so
+country-coverage validation can distinguish missing data from malformed data.
+The simulator applies the same return validation to custom market engines
+before either annual or monthly processing. A missing `Inflation` field or an
+explicit `Inflation=None` uses zero inflation; nonnumeric, non-finite, or
+below-`-1` inflation metadata is rejected before it reaches arithmetic.
+
 ## Real-World JST Macrohistory Database Integration
 
 The project can process the **Jordà-Schularick-Taylor (JST) Macrohistory Database**. Release R6 provides annual data for 18 advanced economies beginning in 1870; country and variable coverage vary, and the return-data fetcher describes its coverage through 2020. This is distinct from the paper's 39-country monthly dataset.
@@ -304,6 +353,25 @@ This dynamically calculates:
 - **International Stock (current legacy method)**: non-domestic equity returns weighted by current-year raw GDP/FX, converted to the domestic currency, and deflated by domestic inflation.
 - **Bonds**: Real 10-year government bond returns.
 - **Bills**: Real short-term treasury bill returns.
+
+The legacy perspective loader uses the paper's country sample registry. Both
+the perspective country and each foreign market must be eligible in the return
+year `t` and the preceding year `t-1`. Chile's eligible intervals are
+1927--1970 and 2010--2023; observations in 1971--2009 are unavailable to this
+path even when present in the CSV. The lag requirement also excludes 1927 and
+2010 from Chile's usable return years. Missing in-sample observations remain
+missing: they are never filled with zero, and an incomplete four-asset vector
+is omitted under the existing legacy coverage rule.
+
+`CountryMetadataRegistry.get_sample_periods(iso)` returns a tuple of inclusive
+`(start_year, end_year)` intervals, matching the values now stored in
+`COUNTRY_SAMPLE_PERIODS`. Use `is_valid_year_for_country(iso, year)` for
+membership. The compatible `get_sample_period(iso)` still returns the outer
+bounds (for Chile, `(1927, 2023)`), which must not be used to test eligibility.
+Unknown codes return `()` from the plural accessor, `(None, None)` from the
+legacy accessor, and false membership. The loader preserves its observed-panel
+fallback for an unknown perspective, but excludes unknown foreign markets.
+The pooled loader uses observed JST coverage independently of this registry.
 
 The current `weight_method="gdp"` is an unvalidated GDP proxy, not the paper's
 lagged USD market-cap weighting: it uses contemporaneous GDP divided by FX,

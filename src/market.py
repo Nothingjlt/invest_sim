@@ -90,19 +90,96 @@ class BootstrapMarket(Market):
     input matches the known bundled synthetic panel.
     """
 
+    _metadata_columns = {"year", "country", "iso"}
+
     def __init__(
         self, csv_path: str, block_size: int = 10, seed: int | None = None,
         *, provenance: DataProvenance | None = None,
     ):
+        self.block_size = self._validate_block_size(block_size)
         self.provenance = csv_provenance(csv_path, provenance)
-        self.data = pd.read_csv(csv_path)
-        self.block_size = block_size
+        try:
+            self.data = pd.read_csv(csv_path)
+        except pd.errors.EmptyDataError as exc:
+            raise ValueError("Bootstrap return panel must not be empty.") from exc
+        self._validate_panel(self.data, panel_name="Bootstrap return panel")
         if seed is not None:
             random.seed(seed)
 
         # State for current simulation path
         self.current_index = 0
         self.remaining_in_block = 0
+
+    @staticmethod
+    def _validate_block_size(block_size: int) -> int:
+        if (
+            isinstance(block_size, bool)
+            or not isinstance(block_size, int)
+            or block_size < 1
+        ):
+            raise ValueError("block_size must be a positive integer.")
+        return block_size
+
+    @classmethod
+    def _validate_panel(cls, data: pd.DataFrame, *, panel_name: str) -> None:
+        if data.empty:
+            raise ValueError(f"{panel_name} must not be empty.")
+
+        for column in data.columns:
+            if column.strip().lower() in cls._metadata_columns:
+                continue
+            for row_index, raw_value in data[column].items():
+                # A missing observation is intentionally omitted later so the
+                # simulator can distinguish unavailable coverage from a bad
+                # observed value.
+                if pd.isna(raw_value):
+                    continue
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError(
+                        f"{panel_name} value for {column} at row {row_index} "
+                        "must be numeric and finite."
+                    ) from exc
+                if not math.isfinite(value):
+                    raise ValueError(
+                        f"{panel_name} value for {column} at row {row_index} "
+                        "must be numeric and finite."
+                    )
+                if value < -1.0:
+                    raise ValueError(
+                        f"{panel_name} value for {column} at row {row_index} "
+                        "must be at least -1."
+                    )
+
+    @classmethod
+    def _validate_perspective_source_columns(cls, data: pd.DataFrame) -> None:
+        """Fail clearly before JST arithmetic sees malformed numeric inputs."""
+        return_columns = {"eq_tr", "bond_tr", "bill_rate"}
+        numeric_columns = {
+            "cpi", "exrat", "eq_tr", "bond_tr", "bill_rate", "gdp"
+        }
+        for column in sorted(numeric_columns & set(data.columns)):
+            for row_index, raw_value in data[column].items():
+                if pd.isna(raw_value):
+                    continue
+                try:
+                    value = float(raw_value)
+                except (TypeError, ValueError, OverflowError) as exc:
+                    raise ValueError(
+                        f"Perspective source column {column} at row {row_index} "
+                        "must be numeric and finite."
+                    ) from exc
+                if not math.isfinite(value):
+                    raise ValueError(
+                        f"Perspective source column {column} at row {row_index} "
+                        "must be numeric and finite."
+                    )
+                if column in return_columns and value < -1.0:
+                    raise ValueError(
+                        f"Perspective source return {column} at row {row_index} "
+                        "must be at least -1."
+                    )
 
     def start_new_path(self):
         """Reset state for a new simulation trial."""
@@ -118,7 +195,7 @@ class BootstrapMarket(Market):
         """
         returns = {}
         for col, value in row.items():
-            if col == "Year" or pd.isna(value):
+            if col.strip().lower() in self._metadata_columns or pd.isna(value):
                 continue
             try:
                 value = float(value)
@@ -129,6 +206,10 @@ class BootstrapMarket(Market):
             if not math.isfinite(value):
                 raise ValueError(
                     f"Bootstrap return for {col} must be numeric and finite."
+                )
+            if value < -1.0:
+                raise ValueError(
+                    f"Bootstrap return for {col} must be at least -1."
                 )
             returns[col] = value
         return returns
@@ -514,15 +595,29 @@ class PerspectiveBootstrapMarket(BootstrapMarket):
         *, provenance: DataProvenance | None = None,
     ):
         from src.data_loader import JSTDataLoader
+
+        self.block_size = self._validate_block_size(block_size)
         self.provenance = csv_provenance(csv_path, provenance)
-        loader = JSTDataLoader(csv_path)
+        try:
+            loader = JSTDataLoader(csv_path)
+        except pd.errors.EmptyDataError as exc:
+            raise ValueError(
+                "Perspective bootstrap raw return panel must not be empty."
+            ) from exc
+        if loader.raw_data.empty:
+            raise ValueError(
+                "Perspective bootstrap raw return panel must not be empty."
+            )
+        self._validate_perspective_source_columns(loader.raw_data)
         processed_data = loader.get_processed_returns(
             perspective_country=perspective_country,
             weight_method=weight_method
         )
+        self._validate_panel(
+            processed_data, panel_name="Perspective processed return panel"
+        )
 
         self.data = processed_data
-        self.block_size = block_size
         self.stationary_bootstrap = stationary_bootstrap
         if seed is not None:
             random.seed(seed)

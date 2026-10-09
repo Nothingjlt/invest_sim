@@ -188,85 +188,90 @@ proxy. Do not describe either GDP method as the paper's market-cap weighting.
 
 ### Disjoint country sample periods
 
-**Status:** Open
+**Status:** Completed for the legacy JST perspective loader
 
-`CountryMetadataRegistry` currently represents each country with one continuous
-`(start_year, end_year)` interval. The paper has countries that leave and later
-re-enter the developed-country sample; for example, Chile has 1927--1970 and
-2010--2023 periods. The current registry therefore treats the intervening years
-as eligible and can contaminate coverage calculations and international-return
-weights.
+`CountryMetadataRegistry` now stores tuples of inclusive eligible intervals as
+the source of truth. Chile has 1927--1970 and 2010--2023 periods, so 1971--2009
+is excluded even when source observations exist. Other country periods retain
+their existing metadata; no additional re-entry periods have been inferred.
 
-Replace the single interval with a list of eligible intervals (or an equivalent
-predicate), preserve the distinction between an unavailable period and a true
-missing observation, and add tests for Chile and the other reclassified/re-entry
-countries.
+The legacy loader applies interval membership to both `t` and `t-1` for the
+perspective and each foreign market. This also excludes Chile's entry/re-entry
+return years, 1927 and 2010, because their lags are outside the sample. An
+unavailable period is excluded before inspecting observations; true missing
+in-sample returns retain the legacy missing-data behavior and never become zero
+returns. Complete-vector coverage still determines which output rows survive.
+
+`get_sample_periods()` exposes all intervals. The compatible singular
+`get_sample_period()` exposes only the outer bounds and is not an eligibility
+test. Focused registry and loader fixtures cover boundaries, the full Chile
+gap, foreign-basket exclusion, perspective coverage, and true missing returns.
+The broad pooled loader continues to use observed JST source coverage rather
+than this paper-specific registry.
 
 ### Bootstrap input validation
 
-**Status:** Open
+**Status:** Completed
 
-CSV bootstrap constructors currently accept invalid or unusable inputs too late:
+The legacy CSV bootstrap constructors now fail fast on invalid or unusable
+inputs:
 
-- `block_size=0` is accepted; stationary sampling later divides by zero, while
-  fixed-block sampling silently starts a new block for every draw;
-- empty panels fail later with low-level indexing errors; and
-- `_observed_returns` rejects non-finite values but permits simple returns below
-  `-1`, which are economically invalid and may only fail once an affected asset
-  is held.
+- `block_size` must be a positive integer for fixed, stationary, and legacy
+  perspective bootstraps;
+- raw and processed perspective panels must contain at least one row; and
+- non-missing return cells must be numeric and finite, with simple returns
+  below `-1` rejected before sampling.
 
-Add constructor-level validation for positive integer block sizes, fail clearly
-on empty panels (including an empty processed perspective panel), and reject
-returns below `-1` before sampling or simulation. Add focused tests for each
-failure mode and for both fixed and stationary engines.
+Explicit missing/NaN cells in legacy CSV panels remain unavailable observations:
+they are omitted from the sampled mapping so existing coverage validation can
+report a missing held asset. This is distinct from a present non-finite value
+such as infinity, which is rejected.
 
 ### Inconsistent monthly handling of invalid returns
 
-**Status:** Open
+**Status:** Completed
 
-Annual simulation rejects a simple return below `-1` through investor return
-validation, but monthly decumulation currently converts any annual return with
-`1 + R <= 0` into `-1` (a total loss) before applying it. Consequently, a
-custom market returning `-1.1` can fail in annual mode but silently complete as
-a total loss in monthly mode. This is an economically inconsistent treatment
-of malformed input.
+The simulator now validates each custom market observation once, immediately
+after it is returned and before either annual or monthly processing. Annual and
+monthly paths both reject nonnumeric/non-finite values and simple returns below
+`-1`; the monthly path only accepts `-1` as an actual total loss and never
+coerces a lower value into one.
 
-The same monthly path assumes the optional `Inflation` value is numeric when
-the key is present. `Inflation=None` is handled by the fallback, but other
-invalid values such as `NaN`, infinity, or non-numeric objects can reach
-arithmetic before the fallback or centralized validation.
+Missing `Inflation` and an explicit `Inflation=None` both mean zero inflation,
+preserving the existing fallback. Present nonnumeric/non-finite inflation is
+invalid and fails before arithmetic; numeric inflation below `-1` is also
+rejected because it would produce a non-positive adjustment factor.
 
-Validate every supplied market return and metadata value once, before either
-annual or monthly processing. Reject non-finite values and returns below `-1`,
-and define the accepted behavior for a missing or invalid `Inflation` field.
-Add parity tests showing that annual and monthly modes fail consistently.
+### Market descriptors and portfolio allocation ownership
 
-### Pre-existing world-market configuration gap
+**Status:** Addressed
 
-**Status:** Open; pre-existing on `master`, not introduced by this PR
+`MarketConfig` now describes assets and return assumptions with optional legacy
+allocation metadata (`weight=None` by default). Both paper and world factories,
+and the default simulation universe, omit portfolio weights. Their output passes
+`SimulationConfig.validate()` directly, without placeholder mutations or a
+factory-selected investment policy.
 
-`SimulationConfig.get_world_market_configs()` returns every market with
-`weight=0.0`, while `SimulationConfig.validate()` requires the market weights to
-form a valid allocation. Calling `SimulationConfig(markets=...).validate()` on
-the factory output therefore fails before a strategy can supply its actual
-portfolio allocation. Existing tests work around this by changing at least one
-weight, but there is no test defining the intended factory contract.
+Every strategy owns its target allocation. The paper factory no longer embeds
+the 34/66 policy; `PaperOptimalStrategy` supplies it, while `PaperTDFStrategy`,
+world, balanced, fixed, glide-path, and custom strategies retain their own
+weights and resolution behavior. Complete legacy numeric market weights are
+still validated as an explicit allocation and never override strategy weights.
+Mixed omitted/numeric weights and explicit all-zero allocations are rejected.
 
-Decide whether the factory should return a valid default allocation or whether
-market descriptors should be separated from portfolio allocations. Then add a
-regression test that exercises the chosen contract; do not silently change this
-as part of the paper-bootstrap work.
+`tests/test_config.py` covers the factory and descriptor validation contracts.
+`tests/test_allocation_ownership.py` verifies independently calculated annual
+and monthly outcomes for strategy-owned allocations with both descriptor-only
+and conflicting legacy metadata, including paper sleeve-to-country resolution.
+World-market weighting methodology remains a separate open gap.
 
-### Additional tests needed
+### Additional tests needed for remaining open gaps
 
 The open gaps above should be covered by:
 
 - multi-row stationary and fixed-block fixtures that exercise country-history
   boundaries and continuation behavior;
-- lagged market-cap weighting and disjoint country-eligibility fixtures;
-- invalid block sizes, empty panels, and returns below `-1`;
-- invalid monthly returns and `Inflation` values, with annual/monthly parity;
-- a factory-contract test for `get_world_market_configs()`; and
+- lagged market-cap weighting fixtures; and
 - a lightweight documentation/review check that paper-compatibility claims
   continue to link to this file.
 

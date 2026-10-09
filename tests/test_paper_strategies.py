@@ -11,17 +11,13 @@ def test_balanced_strategy():
     assert alloc["Bonds"] == pytest.approx(0.40)
 
 
-def test_paper_market_config_weights_match_fixed_weight_policy():
-    weights = {
-        market.name: market.weight
-        for market in SimulationConfig.get_paper_market_configs()
-    }
-    assert weights == pytest.approx({
-        "Domestic Stock": 0.34,
-        "International Stock": 0.66,
-        "Bonds": 0.0,
-        "Bills": 0.0,
-    })
+def test_paper_market_configs_describe_assets_without_a_portfolio_policy():
+    markets = SimulationConfig.get_paper_market_configs()
+    assert [market.name for market in markets] == [
+        "Domestic Stock", "International Stock", "Bonds", "Bills",
+    ]
+    assert all(market.weight is None for market in markets)
+    SimulationConfig(markets=markets).validate()
 
 
 def test_paper_optimal_strategy_uses_paper_fixed_weight_all_equity_policy():
@@ -80,19 +76,16 @@ def test_paper_optimal_strategy_stochastic_runs_deterministically():
             name="Domestic Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.34,
         ),
         MarketConfig(
             name="International Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.66,
         ),
         MarketConfig(
             name="Bills",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.0,
         ),
     ]
     config = SimulationConfig(
@@ -126,25 +119,21 @@ def test_paper_tdf_strategy_stochastic_runs_deterministically():
             name="Domestic Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.10,
         ),
         MarketConfig(
             name="International Stock",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.07,
         ),
         MarketConfig(
             name="Bonds",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.73,
         ),
         MarketConfig(
             name="Bills",
             expected_return=0.0,
             volatility=0.0,
-            weight=0.10,
         ),
     ]
     config = SimulationConfig(
