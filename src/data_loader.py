@@ -29,59 +29,69 @@ JST_R6_GDP_SCALE_FACTORS = {
 
 
 class CountryMetadataRegistry:
-    # ISO country codes mapped to (start_year, end_year) from the paper Table C.V
+    # ISO country codes mapped to inclusive sample intervals from the paper.
+    # These intervals, rather than their outer bounds, define eligibility.
     COUNTRY_SAMPLE_PERIODS = {
-        "GBR": (1890, 2023),
-        "NLD": (1914, 2023),
-        "BEL": (1897, 2023),
-        "FRA": (1890, 2023),
-        "NOR": (1914, 2023),
-        "DEU": (1890, 2023),
-        "DNK": (1890, 2023),
-        "CHE": (1914, 2023),
-        "USA": (1890, 2023),
-        "CAN": (1891, 2023),
-        "ARG": (1947, 1966),
-        "NZL": (1896, 2023),
-        "AUS": (1901, 2023),
-        "SWE": (1910, 2023),
-        "AUT": (1920, 2023),
-        "CHL": (1927, 2023),
-        "GRC": (1981, 2023),
-        "CSK": (1922, 1945),
-        "JPN": (1930, 2023),
-        "PRT": (1934, 2023),
-        "ITA": (1931, 2023),
-        "IRL": (1936, 2023),
-        "SGP": (1998, 2023),
-        "ISL": (2002, 2023),
-        "LUX": (1982, 2023),
-        "TUR": (2010, 2023),
-        "ESP": (1959, 2023),
-        "FIN": (1969, 2023),
-        "MEX": (2001, 2023),
-        "CZE": (2000, 2023),
-        "HUN": (1999, 2023),
-        "POL": (1999, 2023),
-        "KOR": (2000, 2023),
-        "SVK": (2000, 2023),
-        "ISR": (2010, 2023),
-        "SVN": (2010, 2023),
-        "LVA": (2016, 2023),
-        "LTU": (2018, 2023),
-        "COL": (2020, 2023),
+        "GBR": ((1890, 2023),),
+        "NLD": ((1914, 2023),),
+        "BEL": ((1897, 2023),),
+        "FRA": ((1890, 2023),),
+        "NOR": ((1914, 2023),),
+        "DEU": ((1890, 2023),),
+        "DNK": ((1890, 2023),),
+        "CHE": ((1914, 2023),),
+        "USA": ((1890, 2023),),
+        "CAN": ((1891, 2023),),
+        "ARG": ((1947, 1966),),
+        "NZL": ((1896, 2023),),
+        "AUS": ((1901, 2023),),
+        "SWE": ((1910, 2023),),
+        "AUT": ((1920, 2023),),
+        "CHL": ((1927, 1970), (2010, 2023)),
+        "GRC": ((1981, 2023),),
+        "CSK": ((1922, 1945),),
+        "JPN": ((1930, 2023),),
+        "PRT": ((1934, 2023),),
+        "ITA": ((1931, 2023),),
+        "IRL": ((1936, 2023),),
+        "SGP": ((1998, 2023),),
+        "ISL": ((2002, 2023),),
+        "LUX": ((1982, 2023),),
+        "TUR": ((2010, 2023),),
+        "ESP": ((1959, 2023),),
+        "FIN": ((1969, 2023),),
+        "MEX": ((2001, 2023),),
+        "CZE": ((2000, 2023),),
+        "HUN": ((1999, 2023),),
+        "POL": ((1999, 2023),),
+        "KOR": ((2000, 2023),),
+        "SVK": ((2000, 2023),),
+        "ISR": ((2010, 2023),),
+        "SVN": ((2010, 2023),),
+        "LVA": ((2016, 2023),),
+        "LTU": ((2018, 2023),),
+        "COL": ((2020, 2023),),
     }
 
     @classmethod
+    def get_sample_periods(cls, country_iso: str) -> Tuple[Tuple[int, int], ...]:
+        """Return all inclusive eligible intervals, or () for an unknown ISO."""
+        return cls.COUNTRY_SAMPLE_PERIODS.get(country_iso.upper(), ())
+
+    @classmethod
     def get_sample_period(cls, country_iso: str) -> Tuple[Optional[int], Optional[int]]:
-        return cls.COUNTRY_SAMPLE_PERIODS.get(country_iso.upper(), (None, None))
+        """Return legacy outer bounds; use interval membership for eligibility."""
+        periods = cls.get_sample_periods(country_iso)
+        if not periods:
+            return None, None
+        return min(start for start, _ in periods), max(end for _, end in periods)
 
     @classmethod
     def is_valid_year_for_country(cls, country_iso: str, year: int) -> bool:
-        start, end = cls.get_sample_period(country_iso)
-        if start is None or end is None:
-            return False
-        return start <= year <= end
+        return any(
+            start <= year <= end
+            for start, end in cls.get_sample_periods(country_iso)
+        )
 
 
 class JSTDataLoader:
@@ -149,6 +159,12 @@ class JSTDataLoader:
         Parameters:
           perspective_country: ISO code of the domestic investor's country (e.g. 'USA')
           weight_method: 'gdp' for GDP-weighting international returns, or 'equal' for equal-weighting.
+
+        Registered perspectives and foreign markets must be in sample at both
+        t and t-1. Out-of-sample periods are unavailable, even if the CSV has
+        observations there; missing in-sample observations remain missing.
+        Unknown perspectives retain the legacy observed-panel fallback, while
+        unknown foreign markets are excluded.
         
         Returns:
           A DataFrame with columns: ['Year', 'Domestic Stock', 'International Stock', 'Bonds', 'Bills']
@@ -156,11 +172,7 @@ class JSTDataLoader:
         p_iso = perspective_country.upper()
         df = self.raw_data.copy()
 
-        # Filter database to years of interest
-        start_year, end_year = CountryMetadataRegistry.get_sample_period(p_iso)
-        if start_year is None:
-            # Fallback to JST overall span
-            start_year, end_year = int(df["year"].min()), int(df["year"].max())
+        perspective_periods = CountryMetadataRegistry.get_sample_periods(p_iso)
 
         # Pivot data by year and ISO to clean it up and compute lags easily
         pivoted = df.pivot(index="year", columns="iso")
@@ -182,11 +194,13 @@ class JSTDataLoader:
         processed_rows = []
 
         for t in years:
-            if t < start_year or t > end_year:
-                continue
-            
             # We need the previous year to compute CPI and exchange rate changes
             t_prev = t - 1
+            if perspective_periods and (
+                not CountryMetadataRegistry.is_valid_year_for_country(p_iso, t)
+                or not CountryMetadataRegistry.is_valid_year_for_country(p_iso, t_prev)
+            ):
+                continue
             if t_prev not in cpi_df.index:
                 continue
 

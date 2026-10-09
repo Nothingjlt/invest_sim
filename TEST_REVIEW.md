@@ -62,6 +62,11 @@ These behaviors were reproduced during the review and are not currently guarded 
 | Monthly metadata | Monthly return conversion raises `TypeError` when `Inflation` is `None`. | Test missing, `None`, NaN, and nonfinite metadata values. |
 | Historical eligibility | Chile data from 1980 is accepted despite the paper's Table II sample periods of 1927–1970 and 2010–2023. | Test country-specific eligibility intervals and disjoint sample windows. |
 
+The historical-eligibility finding above is now addressed: the registry stores
+disjoint intervals, and `tests/test_data_loader.py` verifies Chile's excluded
+gap, eligibility at both return endpoints, and missing in-sample coverage.
+The other findings in this review retain their separate status.
+
 Other high-value gaps include partial insolvency withdrawals, exact monthly cap/floor indexation, invalid returns from CSV and custom engines, seeded RNG isolation, loader failures/empty panels, non-USA FX perspectives, and savings-target infeasibility.
 
 ## Test-module disposition

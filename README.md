@@ -316,6 +316,25 @@ This dynamically calculates:
 - **Bonds**: Real 10-year government bond returns.
 - **Bills**: Real short-term treasury bill returns.
 
+The legacy perspective loader uses the paper's country sample registry. Both
+the perspective country and each foreign market must be eligible in the return
+year `t` and the preceding year `t-1`. Chile's eligible intervals are
+1927--1970 and 2010--2023; observations in 1971--2009 are unavailable to this
+path even when present in the CSV. The lag requirement also excludes 1927 and
+2010 from Chile's usable return years. Missing in-sample observations remain
+missing: they are never filled with zero, and an incomplete four-asset vector
+is omitted under the existing legacy coverage rule.
+
+`CountryMetadataRegistry.get_sample_periods(iso)` returns a tuple of inclusive
+`(start_year, end_year)` intervals, matching the values now stored in
+`COUNTRY_SAMPLE_PERIODS`. Use `is_valid_year_for_country(iso, year)` for
+membership. The compatible `get_sample_period(iso)` still returns the outer
+bounds (for Chile, `(1927, 2023)`), which must not be used to test eligibility.
+Unknown codes return `()` from the plural accessor, `(None, None)` from the
+legacy accessor, and false membership. The loader preserves its observed-panel
+fallback for an unknown perspective, but excludes unknown foreign markets.
+The pooled loader uses observed JST coverage independently of this registry.
+
 The current `weight_method="gdp"` is an unvalidated GDP proxy, not the paper's
 lagged USD market-cap weighting: it uses contemporaneous GDP divided by FX,
 without country-specific GDP scale normalization, and falls back to equal

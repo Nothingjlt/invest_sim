@@ -188,19 +188,26 @@ proxy. Do not describe either GDP method as the paper's market-cap weighting.
 
 ### Disjoint country sample periods
 
-**Status:** Open
+**Status:** Completed for the legacy JST perspective loader
 
-`CountryMetadataRegistry` currently represents each country with one continuous
-`(start_year, end_year)` interval. The paper has countries that leave and later
-re-enter the developed-country sample; for example, Chile has 1927--1970 and
-2010--2023 periods. The current registry therefore treats the intervening years
-as eligible and can contaminate coverage calculations and international-return
-weights.
+`CountryMetadataRegistry` now stores tuples of inclusive eligible intervals as
+the source of truth. Chile has 1927--1970 and 2010--2023 periods, so 1971--2009
+is excluded even when source observations exist. Other country periods retain
+their existing metadata; no additional re-entry periods have been inferred.
 
-Replace the single interval with a list of eligible intervals (or an equivalent
-predicate), preserve the distinction between an unavailable period and a true
-missing observation, and add tests for Chile and the other reclassified/re-entry
-countries.
+The legacy loader applies interval membership to both `t` and `t-1` for the
+perspective and each foreign market. This also excludes Chile's entry/re-entry
+return years, 1927 and 2010, because their lags are outside the sample. An
+unavailable period is excluded before inspecting observations; true missing
+in-sample returns retain the legacy missing-data behavior and never become zero
+returns. Complete-vector coverage still determines which output rows survive.
+
+`get_sample_periods()` exposes all intervals. The compatible singular
+`get_sample_period()` exposes only the outer bounds and is not an eligibility
+test. Focused registry and loader fixtures cover boundaries, the full Chile
+gap, foreign-basket exclusion, perspective coverage, and true missing returns.
+The broad pooled loader continues to use observed JST source coverage rather
+than this paper-specific registry.
 
 ### Bootstrap input validation
 
@@ -257,7 +264,7 @@ The open gaps above should be covered by:
 
 - multi-row stationary and fixed-block fixtures that exercise country-history
   boundaries and continuation behavior;
-- lagged market-cap weighting and disjoint country-eligibility fixtures;
+- lagged market-cap weighting fixtures;
 - a factory-contract test for `get_world_market_configs()`; and
 - a lightweight documentation/review check that paper-compatibility claims
   continue to link to this file.
