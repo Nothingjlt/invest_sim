@@ -273,7 +273,7 @@ their origin. Omit the declaration to keep unfamiliar data labeled unverified.
 
 ## Real-World JST Macrohistory Database Integration
 
-You can now run simulations backed by actual historical macroeconomic and market data spanning from **1870 to 2023** across 18 developed nations via the **Jordà-Schularick-Taylor (JST) Macrohistory Database**.
+The project can process the **Jordà-Schularick-Taylor (JST) Macrohistory Database**. Release R6 provides annual data for 18 advanced economies beginning in 1870; country and variable coverage vary, and the return-data fetcher describes its coverage through 2020. This is distinct from the paper's 39-country monthly dataset.
 
 ### Downloading the JST Data
 Run the automated fetcher script to retrieve the JST dataset:
@@ -301,9 +301,94 @@ market_engine = PerspectiveBootstrapMarket(
 ```
 This dynamically calculates:
 - **Domestic Stock**: Real equity returns in domestic currency.
-- **International Stock**: GDP-in-USD weighted average of non-domestic equity returns, FX-converted to the domestic currency, and deflated by domestic inflation.
+- **International Stock (current legacy method)**: non-domestic equity returns weighted by current-year raw GDP/FX, converted to the domestic currency, and deflated by domestic inflation.
 - **Bonds**: Real 10-year government bond returns.
 - **Bills**: Real short-term treasury bill returns.
+
+The current `weight_method="gdp"` is an unvalidated GDP proxy, not the paper's
+lagged USD market-cap weighting: it uses contemporaneous GDP divided by FX,
+without country-specific GDP scale normalization, and falls back to equal
+weights when GDP is missing. Do not assume those current cross-country weights
+are comparable. Use `PooledPerspectiveBootstrapMarket` for the documented
+scale-normalized lagged-GDP baseline; see [GAPS.md](GAPS.md) for its coverage
+rules and remaining alternatives.
+
+### Broad pooled-country bootstrap
+
+`PooledPerspectiveBootstrapMarket` provides the annual broad-pooling path. It
+uses complete, real return vectors from country perspectives, samples country
+and date at geometric block starts, and restarts at country-history gaps and
+endpoints. The default gives each eligible country equal probability at each
+block start. `block_size` is the mean of the untruncated geometric request
+(10 annual observations by default). Gaps and endpoints truncate blocks, so
+observed blocks can be shorter; a simulated path ending can also shorten the
+final block. Equal start probabilities do not imply equal realized observation
+exposure: short histories contribute fewer observations per start on average,
+and long contiguous segments can dominate observed path years.
+
+```python
+from src.market import PooledPerspectiveBootstrapMarket
+from src.provenance import DataProvenance
+
+market = PooledPerspectiveBootstrapMarket(
+    csv_path="data/raw/jst_dataset.csv",
+    block_size=10,
+    country_sampling="equal_country",
+    weight_method="gdp_lagged",
+    gdp_lag=2,
+    min_weight_coverage=1.0,
+    seed=42,
+    provenance=DataProvenance("historical", "JST Macrohistory Database R6"),
+)
+
+# After running a simulation, inspect the sampled country/year exposure.
+diagnostics = market.get_diagnostics()
+last_observation = market.last_observation
+market_universe = market.market_universe_report
+```
+
+Diagnostics distinguish `intended_country_start_probabilities`,
+`realized_country_start_counts`, and `realized_country_observation_counts`.
+`observed_block_length_counts` records realized block lengths, including
+boundary truncation and path-end censoring.
+
+The baseline weights use nominal GDP converted with JST's `xrusd` field after
+applying the R6 country-specific scale multipliers in
+[`JST_R6_GDP_SCALE_FACTORS`](src/data_loader.py). This is labeled **GDP
+converted using JST FX**: historical FX observations combine source/timing
+conventions, so they should not be described as uniform annual-average USD GDP.
+GDP is an economic-size proxy, not listed-market capitalization, and the
+two-year lag does not make revised historical data point-in-time.
+
+By default, the loader includes foreign markets with at least one usable
+equity-return observation. JST R6 has no equity-return observations for Canada
+or Ireland, so those markets are omitted from the default foreign basket and
+shown in `market.market_universe_report`. Pass `foreign_countries` to choose a
+different universe. Within the selected universe, the default requires full
+foreign-weight return coverage for each country-year. Lower
+`min_weight_coverage` values explicitly permit renormalization over observed
+markets; inspect `market.coverage_report` and `market.get_diagnostics()` when
+doing so. `weight_method="equal"` and
+`country_sampling="observation_weighted"` are implemented comparison settings.
+World Bank/WFE and Kuvshinov–Zimmermann capitalization remain documented
+alternatives; they are not automatically downloaded or mixed into the long
+series. No paid dataset is required for the JST baseline.
+
+The detailed design and open alternatives are in [GAPS.md](GAPS.md). It
+distinguishes international-equity weights from country-selection weights;
+peer/region-weighted, one-country-per-path, fixed-country, hybrid, and IID
+pooling remain unimplemented. Broad pooling represents a mixture of historical
+domestic environments; it does not by itself estimate the future experience of
+a particular small country. Annual inputs also do not provide observed monthly
+sequence risk. The pooled engine returns real returns without an `Inflation`
+series; keep simulator spending and returns in consistent real units. Its
+monthly decumulation mode smooths annual returns into equal monthly compound
+returns and does not recover observed monthly sequence risk.
+
+JST is available at no cost under [CC BY-NC-SA 4.0](https://www.macrohistory.net/database/licence-terms/).
+Check its non-commercial and share-alike terms before redistributing the source
+or derived data. The World Bank/WFE listed-market-cap series is available from
+1975 onward, with country-specific gaps, under [CC BY 4.0](https://data.worldbank.org/indicator/CM.MKT.LCAP.CD); it supports a shorter capitalization-weighted comparison, not the full JST history.
 
 
 ## Project Structure

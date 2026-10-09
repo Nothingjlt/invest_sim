@@ -3,7 +3,7 @@ from typing import Dict, Iterable, List, NamedTuple, Optional, Union
 from src.assets import require_return_series
 from src.config import SimulationConfig
 from src.investor import Investor
-from src.market import Market, SyntheticMarket, BootstrapMarket
+from src.market import Market, SyntheticMarket
 from src.provenance import DataProvenance
 from src.strategy import Strategy, FixedAllocationStrategy
 
@@ -328,6 +328,22 @@ class Simulator:
             getattr(self.config, "decumulation_granularity", "annual") == "monthly"
         )
 
+        if market_engine is not None and getattr(market_engine, "returns_basis", None) == "real":
+            inflation_flags = (
+                "withdrawal_inflation_adjusted",
+                "withdrawal_cap_inflation_adjusted",
+                "withdrawal_floor_inflation_adjusted",
+            )
+            enabled_flags = [name for name in inflation_flags if getattr(self.config, name, False)]
+            if enabled_flags:
+                raise ValueError(
+                    "The supplied market returns are already real; disable "
+                    "inflation-adjustment flags for withdrawals, caps, and floors."
+                )
+            reset_diagnostics = getattr(market_engine, "reset_diagnostics", None)
+            if callable(reset_diagnostics):
+                reset_diagnostics()
+
         provenance = (
             SyntheticMarket.provenance if market_engine is None
             else getattr(market_engine, "provenance", DataProvenance())
@@ -343,9 +359,10 @@ class Simulator:
                 else SyntheticMarket(self.config.markets)
             )
 
-            # If bootstrap, start a new path
-            if isinstance(market, BootstrapMarket):
-                market.start_new_path()
+            # Give any stateful market engine a fresh path for this trial.
+            start_new_path = getattr(market, "start_new_path", None)
+            if callable(start_new_path):
+                start_new_path()
 
             investor = Investor(
                 age=self.config.starting_age,
@@ -444,6 +461,10 @@ class Simulator:
                 if track_paths:
                     trial_path.append(investor.total_portfolio_value)
                     trial_withdrawals.append(withdrawal_amount_this_year)
+
+            end_path = getattr(market, "end_path", None)
+            if callable(end_path):
+                end_path()
 
             terminal_wealths.append(investor.total_portfolio_value)
             if track_paths:
