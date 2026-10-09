@@ -68,6 +68,7 @@ def test_simulation_with_world_market():
     """Run a full simulation using world market indices."""
     world_markets = SimulationConfig.get_world_market_configs()
     config = SimulationConfig(starting_age=25, retirement_age=65, markets=world_markets)
+    config.validate()
 
     # Use countries covered throughout the bundled panel.
     strategy = WorldEquityStrategy(
@@ -91,6 +92,7 @@ def test_diversification_safety_comparison():
     # Note: Since data is synthetic/simulated, we just ensure the tool can make the comparison.
     world_markets = SimulationConfig.get_world_market_configs()
     config = SimulationConfig(starting_age=25, markets=world_markets)
+    config.validate()
     market = BootstrapMarket("data/global_historical_returns.csv")
     sim = Simulator(config)
 

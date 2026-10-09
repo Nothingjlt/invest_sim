@@ -36,7 +36,6 @@ def write_country_csv(tmp_path, row):
 
 def short_country_config(**changes):
     markets = SimulationConfig.get_world_market_configs()
-    markets[0].weight = 1.0
     values = dict(
         starting_age=25,
         retirement_age=27,

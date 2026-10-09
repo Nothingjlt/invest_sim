@@ -46,6 +46,44 @@ This tool allows investors to compare traditional "Glide Path" (Target Date Fund
    *(A root `conftest.py` automatically adds the project root to `sys.path`.)*
 
 
+## Market descriptors and strategy allocations
+
+`MarketConfig(name, expected_return, volatility)` describes an available asset
+and its synthetic return assumptions. `SimulationConfig.markets` defines the
+investment universe. The default configuration, `get_paper_market_configs()`,
+and `get_world_market_configs()` supply descriptors with `weight=None`, so their
+output passes configuration validation without assigning a portfolio policy.
+
+Every strategy owns its target weights through `get_allocation(age)`, including
+`WorldEquityStrategy`, `PaperOptimalStrategy`, `PaperTDFStrategy`,
+`BalancedStrategy`, `FixedAllocationStrategy`, `GlidePathStrategy`, and custom
+`Strategy` subclasses. The simulator uses the strategy's resolved allocation
+for contributions, rebalancing, and withdrawals. Paper strategies keep their
+logical Domestic/International Stock sleeves when those return series exist;
+with country-only series, their default resolver maps domestic stock to USA
+and international stock to GBR/JPN/FRA/DEU using its existing constituent mix.
+Explicit strategy label mappings retain their existing behavior.
+
+```python
+from src.config import SimulationConfig
+from src.strategy import WorldEquityStrategy
+
+config = SimulationConfig(markets=SimulationConfig.get_world_market_configs())
+config.validate()  # No placeholder weights or default investment policy needed.
+strategy = WorldEquityStrategy({"Developed": {"USA": 0.5, "GBR": 0.3, "JPN": 0.2}})
+```
+
+For compatibility, `MarketConfig(..., weight=...)` and the fourth positional
+argument remain supported as legacy allocation metadata. If any market has a
+numeric weight, every market must have one, and the weights must be finite,
+nonnegative, and sum to one (within the existing rounding tolerance). All-zero
+weights and mixtures of omitted/numeric weights are rejected. Legacy weights
+never override a strategy. To migrate descriptor-only callers, omit all weights
+or set all of them to `None`; move portfolio allocations into a strategy, such as
+`FixedAllocationStrategy`. Code extracting numeric weights from the paper/world
+factories must now obtain them from the chosen strategy. The paper factory no
+longer embeds `PaperOptimalStrategy`'s 34/66 policy.
+
 ## Usage Example
 
 The following script compares the paper's **100% Equity (Optimal)** strategy against a **Traditional Target Date Fund (TDF)** using synthetic market parameters derived from historical developed market data.

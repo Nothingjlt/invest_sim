@@ -15,6 +15,14 @@ The recent correction is supported by the paper. Section 4.1 describes 13 age wi
 
 The exact 13 age-window weights are not tabulated in the supplied text; Table III reports ranges. `PaperOptimalStrategy` should therefore not be presented as the age-based optimizer. The TDF section likewise points to a curve in Figure 1 while Table III provides ranges rather than point-by-point weights. The revised code and tests appropriately identify `PaperTDFStrategy` as a linear approximation rather than a reconstruction of that figure.
 
+**Subsequent architecture update:** market factories now return asset descriptors
+without portfolio weights. The 34/66 policy belongs to `PaperOptimalStrategy`;
+every other strategy likewise owns its allocation. Factory/configuration
+regressions and independently calculated strategy ownership outcomes are covered
+in `tests/test_config.py` and `tests/test_allocation_ownership.py`. Complete
+explicit legacy market weights remain validated metadata and never override a
+strategy. The review above describes the earlier revision.
+
 ### Compatibility regression found and fixed before merge
 
 The independent audit found that the shared market resolver treated `PaperOptimalStrategy`'s compatibility-only `bills_label` as an explicitly requested asset at [src/strategy.py:174](src/strategy.py#L174). With country-only return series, the default strategy resolved successfully, while either of these failed because resolution of a default equity sleeve was suppressed:

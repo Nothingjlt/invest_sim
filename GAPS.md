@@ -242,21 +242,28 @@ preserving the existing fallback. Present nonnumeric/non-finite inflation is
 invalid and fails before arithmetic; numeric inflation below `-1` is also
 rejected because it would produce a non-positive adjustment factor.
 
-### Pre-existing world-market configuration gap
+### Market descriptors and portfolio allocation ownership
 
-**Status:** Open; pre-existing on `master`, not introduced by this PR
+**Status:** Addressed
 
-`SimulationConfig.get_world_market_configs()` returns every market with
-`weight=0.0`, while `SimulationConfig.validate()` requires the market weights to
-form a valid allocation. Calling `SimulationConfig(markets=...).validate()` on
-the factory output therefore fails before a strategy can supply its actual
-portfolio allocation. Existing tests work around this by changing at least one
-weight, but there is no test defining the intended factory contract.
+`MarketConfig` now describes assets and return assumptions with optional legacy
+allocation metadata (`weight=None` by default). Both paper and world factories,
+and the default simulation universe, omit portfolio weights. Their output passes
+`SimulationConfig.validate()` directly, without placeholder mutations or a
+factory-selected investment policy.
 
-Decide whether the factory should return a valid default allocation or whether
-market descriptors should be separated from portfolio allocations. Then add a
-regression test that exercises the chosen contract; do not silently change this
-as part of the paper-bootstrap work.
+Every strategy owns its target allocation. The paper factory no longer embeds
+the 34/66 policy; `PaperOptimalStrategy` supplies it, while `PaperTDFStrategy`,
+world, balanced, fixed, glide-path, and custom strategies retain their own
+weights and resolution behavior. Complete legacy numeric market weights are
+still validated as an explicit allocation and never override strategy weights.
+Mixed omitted/numeric weights and explicit all-zero allocations are rejected.
+
+`tests/test_config.py` covers the factory and descriptor validation contracts.
+`tests/test_allocation_ownership.py` verifies independently calculated annual
+and monthly outcomes for strategy-owned allocations with both descriptor-only
+and conflicting legacy metadata, including paper sleeve-to-country resolution.
+World-market weighting methodology remains a separate open gap.
 
 ### Additional tests needed for remaining open gaps
 
@@ -264,8 +271,7 @@ The open gaps above should be covered by:
 
 - multi-row stationary and fixed-block fixtures that exercise country-history
   boundaries and continuation behavior;
-- lagged market-cap weighting fixtures;
-- a factory-contract test for `get_world_market_configs()`; and
+- lagged market-cap weighting fixtures; and
 - a lightweight documentation/review check that paper-compatibility claims
   continue to link to this file.
 

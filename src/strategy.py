@@ -19,6 +19,11 @@ def _validate_timeline(start_age, retire_age):
 class Strategy(ABC):
     """Abstract base class for investment strategies.
 
+    Every strategy owns its target portfolio weights. Market descriptors define
+    available assets and return assumptions; their legacy weights do not affect
+    strategy allocations. Resolution may expand logical sleeves into holdings
+    supported by the current market's return series.
+
     Composite strategies add component weights when holding labels overlap.
     WorldEquityStrategy rejects countries repeated across regions, since region
     entries are absolute holdings rather than separate portfolio components.
