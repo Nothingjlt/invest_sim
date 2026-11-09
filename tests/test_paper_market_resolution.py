@@ -86,10 +86,9 @@ def lifecycle_config(returns, engine_name, granularity, **changes):
     markets = SimulationConfig.get_world_market_configs()
     if engine_name == "synthetic":
         markets = [
-            MarketConfig(name, value, 0.0, 0.0)
+            MarketConfig(name, value, 0.0)
             for name, value in returns.items() if name != "Inflation"
         ]
-    markets[0].weight = 1.0
     values = dict(
         starting_age=63, retirement_age=65, end_age=68,
         initial_salary=1000.0, savings_rate=1.0, salary_growth_rate=0.0,
@@ -165,7 +164,6 @@ def test_optimal_ignored_bills_label_does_not_change_country_resolution(
 @pytest.mark.parametrize("strategy_type", PAPER_STRATEGIES)
 def test_default_paper_strategies_work_with_validated_synthetic_world_configs(strategy_type):
     markets = SimulationConfig.get_world_market_configs()
-    markets[0].weight = 1.0
     for market in markets:
         market.expected_return = 0.05
         market.volatility = 0.0
@@ -452,8 +450,7 @@ def test_paper_subclass_can_supply_its_own_constructor_without_calling_super(
         def _get_allocation(self, age):
             return self.target
 
-    markets = [MarketConfig(asset, ret, 0.0, 0.0) for asset, ret in returns.items()]
-    markets[0].weight = 1.0
+    markets = [MarketConfig(asset, ret, 0.0) for asset, ret in returns.items()]
     config = SimulationConfig(
         starting_age=64, retirement_age=65, end_age=66, markets=markets,
         decumulation_granularity=granularity,

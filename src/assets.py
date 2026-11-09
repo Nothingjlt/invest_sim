@@ -1,4 +1,5 @@
 import math
+from collections.abc import Mapping as MappingABC
 from numbers import Real
 from typing import Iterable, Mapping
 
@@ -62,3 +63,34 @@ def require_return_series(
         raise ValueError(
             f"{context}: missing return series for {', '.join(missing)}"
         )
+
+
+def validate_market_returns(
+    returns: Mapping[str, object], *, context: str = "Market returns"
+) -> dict[str, float]:
+    """Validate and normalize one market observation.
+
+    Market engines return simple returns, optionally accompanied by an
+    ``Inflation`` metadata value.  Missing inflation and an explicit
+    ``Inflation=None`` both mean zero inflation.  Every other supplied value
+    must be a finite number, and no simple return may be below ``-1``.  The
+    returned copy contains floats, so annual and monthly simulation paths use
+    the same validated values and never perform arithmetic on raw metadata.
+    """
+    if not isinstance(returns, MappingABC):
+        raise ValueError(f"{context} must be a mapping of market returns.")
+
+    validated: dict[str, float] = {}
+    for asset, value in returns.items():
+        if asset == "Inflation" and value is None:
+            validated[asset] = 0.0
+            continue
+
+        number = finite_number(value, context=f"{context} value for {asset}")
+        if number < -1.0:
+            raise ValueError(
+                f"{context} value for {asset} must be at least -1."
+            )
+        validated[asset] = number
+
+    return validated

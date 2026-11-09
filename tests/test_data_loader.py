@@ -20,6 +20,139 @@ def test_country_metadata_registry():
     assert CountryMetadataRegistry.is_valid_year_for_country("ARG", 1930) is False
     assert CountryMetadataRegistry.is_valid_year_for_country("ARG", 1950) is True
 
+
+def test_country_metadata_disjoint_periods_and_legacy_bounds():
+    assert CountryMetadataRegistry.get_sample_periods("chl") == (
+        (1927, 1970), (2010, 2023)
+    )
+    # The compatibility accessor is a bounding envelope, not eligibility.
+    assert CountryMetadataRegistry.get_sample_period("CHL") == (1927, 2023)
+    eligible_years = {
+        year for year in range(1926, 2025)
+        if CountryMetadataRegistry.is_valid_year_for_country("chl", year)
+    }
+    assert eligible_years == set(range(1927, 1971)) | set(range(2010, 2024))
+
+
+@pytest.mark.parametrize(
+    "country,period",
+    [("USA", (1890, 2023)), ("ARG", (1947, 1966)), ("CSK", (1922, 1945))],
+)
+def test_country_metadata_continuous_period_boundaries(country, period):
+    start, end = period
+    assert CountryMetadataRegistry.get_sample_periods(country) == (period,)
+    assert CountryMetadataRegistry.get_sample_period(country.lower()) == period
+    assert not CountryMetadataRegistry.is_valid_year_for_country(country, start - 1)
+    assert CountryMetadataRegistry.is_valid_year_for_country(country, start)
+    assert CountryMetadataRegistry.is_valid_year_for_country(country, end)
+    assert not CountryMetadataRegistry.is_valid_year_for_country(country, end + 1)
+
+
+def test_country_metadata_unknown_country():
+    assert CountryMetadataRegistry.get_sample_periods("ZZZ") == ()
+    assert CountryMetadataRegistry.get_sample_period("ZZZ") == (None, None)
+    assert not CountryMetadataRegistry.is_valid_year_for_country("ZZZ", 1950)
+
+
+@pytest.fixture
+def reentry_loader(tmp_path):
+    # Complete observations even in Chile's unavailable years prove that sample
+    # eligibility, rather than missing source values, excludes the gap.
+    rows = [
+        {
+            "year": year,
+            "iso": country,
+            "cpi": 100.0,
+            "exrat": 1.0,
+            "eq_tr": equity_return,
+            "bond_tr": 0.02,
+            "bill_rate": 0.01,
+            "gdp": gdp,
+        }
+        for year in range(1926, 2025)
+        for country, equity_return, gdp in (
+            ("USA", 0.2, 200.0), ("GBR", 0.1, 100.0), ("CHL", 0.9, 300.0)
+        )
+    ]
+    path = tmp_path / "reentry_jst.csv"
+    pd.DataFrame(rows).to_csv(path, index=False)
+    return JSTDataLoader(str(path))
+
+
+@pytest.mark.parametrize("weight_method,in_sample_return", [("equal", 0.5), ("gdp", 0.7)])
+def test_foreign_reentry_gap_excluded_from_international_returns(
+    reentry_loader, weight_method, in_sample_return
+):
+    processed = reentry_loader.get_processed_returns(
+        perspective_country="USA", weight_method=weight_method
+    ).set_index("Year")
+    assert set(processed.index) == set(range(1927, 2024))
+    # Entry/re-entry years need an eligible lag: 1927 and 2010 are excluded
+    # from the foreign basket even though their source observations exist.
+    chile_return_years = set(range(1928, 1971)) | set(range(2011, 2024))
+    for year, row in processed.iterrows():
+        expected = in_sample_return if year in chile_return_years else 0.1
+        assert row["International Stock"] == pytest.approx(expected)
+
+    # Removing unavailable observations must not change returns or coverage.
+    unavailable = (
+        reentry_loader.raw_data["iso"].eq("CHL")
+        & reentry_loader.raw_data["year"].between(1971, 2009)
+    )
+    reentry_loader.raw_data = reentry_loader.raw_data.loc[~unavailable].copy()
+    without_gap_observations = reentry_loader.get_processed_returns(
+        perspective_country="USA", weight_method=weight_method
+    ).set_index("Year")
+    pd.testing.assert_frame_equal(processed, without_gap_observations)
+
+
+def test_perspective_reentry_requires_eligible_current_and_previous_year(reentry_loader):
+    processed = reentry_loader.get_processed_returns(
+        perspective_country="chl", weight_method="equal"
+    ).set_index("Year")
+    assert set(processed.index) == set(range(1928, 1971)) | set(range(2011, 2024))
+    assert processed["Domestic Stock"].to_numpy() == pytest.approx(0.9)
+    assert processed["International Stock"].to_numpy() == pytest.approx(0.15)
+
+
+def test_reentry_international_coverage_and_true_missing_observation(reentry_loader):
+    # Chile is the only foreign market. Without an eligible observed return,
+    # the legacy loader must omit the incomplete vector, never fill with zero.
+    reentry_loader.raw_data = reentry_loader.raw_data.loc[
+        reentry_loader.raw_data["iso"].ne("GBR")
+    ].copy()
+    complete = reentry_loader.get_processed_returns(weight_method="equal").set_index("Year")
+    eligible_years = set(range(1928, 1971)) | set(range(2011, 2024))
+    assert set(complete.index) == eligible_years
+    assert complete["International Stock"].to_numpy() == pytest.approx(0.9)
+
+    missing = (
+        reentry_loader.raw_data["iso"].eq("CHL")
+        & reentry_loader.raw_data["year"].eq(2012)
+    )
+    reentry_loader.raw_data.loc[missing, "eq_tr"] = np.nan
+    assert CountryMetadataRegistry.is_valid_year_for_country("CHL", 2012)
+    incomplete = reentry_loader.get_processed_returns(weight_method="equal").set_index("Year")
+    assert set(incomplete.index) == eligible_years - {2012}
+    assert incomplete.loc[2013, "International Stock"] == pytest.approx(0.9)
+
+
+def test_perspective_continuous_start_requires_eligible_lag(reentry_loader):
+    # Shift the complete fixture to include USA's first sample year and its lag.
+    reentry_loader.raw_data["year"] -= 37
+    processed = reentry_loader.get_processed_returns(weight_method="equal")
+    assert processed["Year"].min() == 1891
+    assert 1890 not in set(processed["Year"])
+
+
+def test_unknown_perspective_retains_observed_panel_fallback(reentry_loader):
+    reentry_loader.raw_data.loc[reentry_loader.raw_data["iso"].eq("CHL"), "iso"] = "ZZZ"
+    processed = reentry_loader.get_processed_returns(
+        perspective_country="zzz", weight_method="equal"
+    ).set_index("Year")
+    assert set(processed.index) == set(range(1927, 2024))
+    assert processed.loc[1980, "Domestic Stock"] == pytest.approx(0.9)
+
 def test_jst_data_loader_processing(tmp_path):
     # Create a small synthetic JST dataset CSV
     csv_data = """Year,Country,iso,cpi,exrat,eq_tr,bond_tr,bill_rate,gdp

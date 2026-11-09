@@ -9,12 +9,16 @@ from src.assets import (
 
 @dataclass
 class MarketConfig:
-    """Configuration for a synthetic market or asset class."""
+    """Describe an asset and its synthetic return assumptions.
+
+    ``weight`` is optional legacy allocation metadata. Strategies supply the
+    simulation's target weights; market descriptors need no allocation.
+    """
 
     name: str
     expected_return: float  # Annualized decimal (e.g., 0.07 for 7%)
     volatility: float  # Annualized standard deviation
-    weight: float  # Portfolio weight (0.0 to 1.0)
+    weight: Optional[float] = None  # Legacy explicit allocation; None = descriptor
 
 
 @dataclass
@@ -64,12 +68,12 @@ class SimulationConfig:
     #              smoothed into twelve equal compounded monthly returns:
     #              r_m = (1 + R_annual)^(1/12) - 1.
 
-    # Markets (Synthetic placeholders for now)
-    # Allows 'choice of markets to invest' by defining asset classes here.
+    # Available investment universe and synthetic return assumptions.
+    # The strategy passed to Simulator owns the portfolio allocation.
     markets: List[MarketConfig] = field(
         default_factory=lambda: [
             MarketConfig(
-                name=DOMESTIC_STOCK, expected_return=0.07, volatility=0.15, weight=1.0
+                name=DOMESTIC_STOCK, expected_return=0.07, volatility=0.15
             )
         ]
     )
@@ -98,7 +102,13 @@ class SimulationConfig:
     )
 
     def validate(self):
-        """Basic validation to ensure parameters are logically consistent."""
+        """Validate descriptors and any complete legacy explicit allocation.
+
+        Omitted weights are valid for a descriptor-only universe. If any legacy
+        weight is supplied, all assets must have numeric weights forming a valid
+        allocation; zero placeholders do not stand in for omitted weights.
+        These legacy weights never override the simulation's strategy.
+        """
         for name in ("starting_age", "retirement_age", "end_age"):
             age = getattr(self, name)
             if isinstance(age, bool) or not isinstance(age, int) or age <= 0:
@@ -119,9 +129,15 @@ class SimulationConfig:
         asset_names = [m.name for m in self.markets]
         if len(asset_names) != len(set(asset_names)):
             raise ValueError("Duplicate asset names detected in market configuration.")
-        validate_allocation(
-            {m.name: m.weight for m in self.markets}, context="Total market"
-        )
+        if any(m.weight is not None for m in self.markets):
+            if any(m.weight is None for m in self.markets):
+                raise ValueError(
+                    "Market weights must be omitted for all descriptors or "
+                    "supplied for every asset in a legacy allocation."
+                )
+            validate_allocation(
+                {m.name: m.weight for m in self.markets}, context="Total market"
+            )
         for market in self.markets:
             expected_return = finite_number(market.expected_return, context="expected_return")
             if expected_return <= -1:
@@ -172,25 +188,24 @@ class SimulationConfig:
         Returns the 4 standard asset classes used in the paper:
         Domestic Stock, International Stock, Bonds, and Bills.
         Return values are approximate annualized real returns based on paper data.
+        Portfolio weights are supplied by the selected strategy.
         """
         return [
             MarketConfig(
                 name=DOMESTIC_STOCK,
                 expected_return=0.05,
                 volatility=0.17,
-                weight=0.34,
             ),
             MarketConfig(
                 name=INTERNATIONAL_STOCK,
                 expected_return=0.07,
                 volatility=0.23,
-                weight=0.66,
             ),
             MarketConfig(
-                name=BONDS, expected_return=0.01, volatility=0.10, weight=0.0
+                name=BONDS, expected_return=0.01, volatility=0.10
             ),
             MarketConfig(
-                name=BILLS, expected_return=0.00, volatility=0.02, weight=0.0
+                name=BILLS, expected_return=0.00, volatility=0.02
             ),
         ]
 
@@ -209,13 +224,14 @@ class SimulationConfig:
         """
         Returns a broad set of world market configurations for Developed and Emerging indices.
         Based on pooled statistical moments from global research.
+        Descriptors carry no default allocation; each strategy owns its weights.
         """
         configs = []
         # Representative Developed Markets (Pooled averages)
         for country in ["USA", "GBR", "JPN", "DEU", "FRA", "CAN", "AUS"]:
             configs.append(
                 MarketConfig(
-                    name=country, expected_return=0.05, volatility=0.17, weight=0.0
+                    name=country, expected_return=0.05, volatility=0.17
                 )
             )
 
@@ -223,19 +239,19 @@ class SimulationConfig:
         for country in ["CHN", "IND", "BRA", "ZAF", "ARE"]:
             configs.append(
                 MarketConfig(
-                    name=country, expected_return=0.10, volatility=0.21, weight=0.0
+                    name=country, expected_return=0.10, volatility=0.21
                 )
             )
 
         # Global Fixed Income
         configs.append(
             MarketConfig(
-                name=BONDS, expected_return=0.01, volatility=0.10, weight=0.0
+                name=BONDS, expected_return=0.01, volatility=0.10
             )
         )
         configs.append(
             MarketConfig(
-                name=BILLS, expected_return=0.00, volatility=0.02, weight=0.0
+                name=BILLS, expected_return=0.00, volatility=0.02
             )
         )
 

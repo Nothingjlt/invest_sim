@@ -1,6 +1,6 @@
 import random
 from typing import Dict, Iterable, List, NamedTuple, Optional, Union
-from src.assets import require_return_series
+from src.assets import require_return_series, validate_market_returns
 from src.config import SimulationConfig
 from src.investor import Investor
 from src.market import Market, SyntheticMarket
@@ -139,9 +139,11 @@ class Simulator:
     def _get_inflation(self, annual_returns: Dict[str, float]) -> float:
         """Returns the realized annual inflation rate from market returns.
 
-        Returns 0.0 if the market engine does not provide an 'Inflation' key
-        (e.g. SyntheticMarket or a CSV without an Inflation column), so all
-        inflation-sensitive trackers simply stay flat that year.
+        Returns 0.0 if the market engine does not provide an ``Inflation`` key
+        (or explicitly provides ``None``; both are normalized by
+        ``validate_market_returns``), so all inflation-sensitive trackers
+        simply stay flat that year. Other malformed metadata is rejected when
+        the market observation is received, before either decumulation path.
         """
         value = annual_returns.get("Inflation")
         return value if value is not None else 0.0
@@ -231,8 +233,8 @@ class Simulator:
         - Per-month share of annual quantities (withdrawal target, SS, cap,
           floor) is 1/12 of the annual figure.
         - Year-end inflation adjustment is performed once, after the 12th month.
-        - If an asset's 1 + R_annual is non-positive the monthly return is
-          treated as -1 (total loss in that year).
+        - An annual return of exactly ``-1`` is a valid total loss. Returns
+          below ``-1`` are rejected before this helper is called.
 
         Returns
         -------
@@ -243,10 +245,7 @@ class Simulator:
         monthly_returns: Dict[str, float] = {}
         for asset, r_annual in annual_returns.items():
             base = 1.0 + r_annual
-            if base <= 0.0:
-                monthly_returns[asset] = -1.0  # total loss this year
-            else:
-                monthly_returns[asset] = base ** (1.0 / 12.0) - 1.0
+            monthly_returns[asset] = base ** (1.0 / 12.0) - 1.0
 
         # Monthly split constants (SS, cap, floor are shared equally across months)
         ss_monthly = self.config.social_security_benefit / 12.0
@@ -387,7 +386,10 @@ class Simulator:
             while investor.age < trial_end_age:
                 # 1. Determine target allocation for current age
                 target_alloc = strategy.get_allocation(investor.age)
-                annual_returns = market.get_annual_returns()
+                annual_returns = validate_market_returns(
+                    market.get_annual_returns(),
+                    context=f"{type(market).__name__} returns at age {investor.age}",
+                )
                 target_alloc = strategy.resolve_allocation_for_market(
                     target_alloc, annual_returns.keys()
                 )

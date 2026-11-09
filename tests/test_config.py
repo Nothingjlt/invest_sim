@@ -6,6 +6,72 @@ def test_default_config_is_valid():
     """Verify the default configuration passes validation."""
     config = SimulationConfig()
     config.validate()
+    assert all(market.weight is None for market in config.markets)
+
+
+def test_world_factory_is_a_valid_unallocated_investment_universe():
+    markets = SimulationConfig.get_world_market_configs()
+    assert [market.name for market in markets] == [
+        "USA", "GBR", "JPN", "DEU", "FRA", "CAN", "AUS",
+        "CHN", "IND", "BRA", "ZAF", "ARE", "Bonds", "Bills",
+    ]
+    assert all(market.weight is None for market in markets)
+    SimulationConfig(markets=markets).validate()
+    assert all(market.weight is None for market in markets)
+
+
+def test_paper_bootstrap_factory_is_valid_without_an_allocation():
+    config = SimulationConfig.get_paper_bootstrap_config()
+    config.validate()
+    assert all(market.weight is None for market in config.markets)
+
+
+def test_descriptor_only_configuration_needs_no_weight_placeholders():
+    markets = [MarketConfig("Stock", 0.07, 0.15), MarketConfig("Bond", 0.03, 0.05)]
+    SimulationConfig(markets=markets).validate()
+    assert all(market.weight is None for market in markets)
+
+
+def test_explicit_none_weights_are_descriptors():
+    SimulationConfig(markets=[MarketConfig("Stock", 0.07, 0.15, weight=None)]).validate()
+
+
+def test_legacy_positional_and_keyword_weights_remain_valid_metadata():
+    markets = [
+        MarketConfig("Stock", 0.07, 0.15, 0.6),
+        MarketConfig("Bond", 0.03, 0.05, weight=0.4),
+    ]
+    SimulationConfig(markets=markets).validate()
+    assert [market.weight for market in markets] == [0.6, 0.4]
+
+
+@pytest.mark.parametrize("explicit_weight", [0.0, 1.0])
+def test_mixed_descriptors_and_legacy_weights_require_an_explicit_choice(explicit_weight):
+    markets = [MarketConfig("Stock", 0.07, 0.15, explicit_weight), MarketConfig("Bond", 0.03, 0.05)]
+    with pytest.raises(ValueError, match="omitted for all descriptors.*supplied for every asset"):
+        SimulationConfig(markets=markets).validate()
+
+
+def test_explicit_all_zero_weights_are_not_a_valid_portfolio():
+    markets = [MarketConfig("Stock", 0.07, 0.15, 0.0), MarketConfig("Bond", 0.03, 0.05, 0.0)]
+    with pytest.raises(ValueError, match="Total market weights must sum to 1.0"):
+        SimulationConfig(markets=markets).validate()
+
+
+@pytest.mark.parametrize("field,value", [
+    ("name", ""), ("expected_return", -1), ("expected_return", float("nan")),
+    ("volatility", -0.1), ("volatility", float("inf")),
+])
+def test_descriptors_still_validate_asset_names_and_return_assumptions(field, value):
+    market = MarketConfig("Stock", 0.07, 0.15)
+    setattr(market, field, value)
+    with pytest.raises(ValueError):
+        SimulationConfig(markets=[market]).validate()
+
+
+def test_descriptor_only_configuration_rejects_duplicate_assets():
+    with pytest.raises(ValueError, match="Duplicate asset names"):
+        SimulationConfig(markets=[MarketConfig("Stock", 0, 0), MarketConfig("Stock", 0, 0)]).validate()
 
 
 def test_invalid_ages_raises_error():
