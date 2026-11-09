@@ -177,24 +177,41 @@ def test_invalid_custom_inflation_fails_before_annual_or_monthly_arithmetic(
         )
 
 
-@pytest.mark.parametrize("inflation_observation", [{"Stocks": 0.0}, {"Stocks": 0.0, "Inflation": None}])
+@pytest.mark.parametrize(
+    "inflation_observation",
+    [
+        {"Stocks": 0.0},
+        {"Stocks": 0.0, "Inflation": None},
+        {"Stocks": 0.0, "Inflation": 0.0},
+    ],
+    ids=["missing", "none", "explicit-zero"],
+)
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
 def test_missing_and_none_inflation_use_the_same_zero_fallback(
     granularity, inflation_observation
 ):
+    config = simulator_config(granularity)
+    config.end_age = 29
+    config.withdrawal_rate = 0.10
+    config.withdrawal_strategy = "fixed_real"
     market = SequenceMarket([
-        {"Stocks": 0.0},
+        {"Stocks": 0.0, "Inflation": 0.0},
+        inflation_observation,
+        inflation_observation,
         inflation_observation,
     ])
 
-    result = Simulator(simulator_config(granularity)).run_stochastic(
+    result = Simulator(config).run_stochastic(
         FixedAllocationStrategy({"Stocks": 1.0}),
         num_trials=1,
         market_engine=market,
         track_paths=True,
     )
 
-    assert result.withdrawal_paths[0][-1] == pytest.approx(0.0)
+    assert result.withdrawal_paths[0] == pytest.approx(
+        [0.0, 0.0, 100.0, 100.0, 100.0]
+    )
+    assert result.terminal_wealths == pytest.approx([700.0])
 
 
 @pytest.mark.parametrize("granularity", ["annual", "monthly"])
